@@ -1,9 +1,5 @@
+from src.coach.rules_engine import get_rule
 
 
-def evaluate(state):
-    if state == "productive":
-        return "good"
-    elif state == "distracting":
-        return "warning"
-    else:
-        return "neutral"
+def evaluate(state: str) -> dict:
+    return get_rule(state)
