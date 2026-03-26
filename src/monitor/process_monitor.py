@@ -1,55 +1,49 @@
+# src/monitor/process_monitor.py
+
+from __future__ import annotations
+
+from typing import Dict
+
 import psutil
 import win32gui
 import win32process
 
 
-def get_active_process_info() -> dict:
+def get_foreground_process_info() -> Dict[str, str]:
     """
-    Повертає інформацію про активне вікно:
-    - pid
-    - process_name
-    - window_title
-
-    Якщо щось пішло не так — повертає safe fallback.
+    Returns normalized foreground process info:
+    {
+        "process_name": "chrome.exe",
+        "window_title": "YouTube - Google Chrome"
+    }
     """
     try:
         hwnd = win32gui.GetForegroundWindow()
-
         if not hwnd:
             return {
-                "pid": None,
-                "process_name": "unknown",
+                "process_name": "unknown.exe",
                 "window_title": "",
             }
 
-        window_title = win32gui.GetWindowText(hwnd)
+        window_title = win32gui.GetWindowText(hwnd) or ""
+
         _, pid = win32process.GetWindowThreadProcessId(hwnd)
+        if not pid:
+            return {
+                "process_name": "unknown.exe",
+                "window_title": window_title,
+            }
 
         process = psutil.Process(pid)
-        process_name = process.name()
+        process_name = process.name().lower()
 
         return {
-            "pid": pid,
             "process_name": process_name,
             "window_title": window_title,
         }
 
-    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+    except Exception:
         return {
-            "pid": None,
-            "process_name": "unknown",
+            "process_name": "unknown.exe",
             "window_title": "",
         }
-    except Exception as e:
-        return {
-            "pid": None,
-            "process_name": "unknown",
-            "window_title": f"error: {e}",
-        }
-
-
-def get_active_process() -> str:
-    """
-    Залишаємо для сумісності з поточним main.py
-    """
-    return get_active_process_info()["process_name"]

@@ -1,5 +1,10 @@
+# src/logger/logger.py
+
+from __future__ import annotations
+
 from datetime import datetime
 
 
-def log(message):
-    print(f"[{datetime.now()}] {message}")
+def log(message: str) -> None:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {message}")

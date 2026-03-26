@@ -1,14 +1,34 @@
-from src.config.config import PRODUCTIVE, DISTRACTING, TIME_WASTING
+# src/classifier/classifier.py
+
+from __future__ import annotations
+
+from src.config.config import (
+    DISTRACTING,
+    PRODUCTIVE,
+    TIME_WASTING,
+    UNKNOWN_CATEGORY,
+)
 
 
-def classify(process_name: str) -> str:
-    process_name = process_name.lower()
+def normalize_process_name(process_name: str | None) -> str:
+    if not process_name:
+        return ""
+    return process_name.strip().lower()
 
-    if process_name in PRODUCTIVE:
+
+def classify_process_name(process_name: str | None) -> str:
+    normalized = normalize_process_name(process_name)
+
+    if not normalized:
+        return UNKNOWN_CATEGORY
+
+    if normalized in PRODUCTIVE:
         return "productive"
-    if process_name in DISTRACTING:
+
+    if normalized in DISTRACTING:
         return "distracting"
-    if process_name in TIME_WASTING:
+
+    if normalized in TIME_WASTING:
         return "time_wasting"
 
-    return "unknown"
+    return UNKNOWN_CATEGORY

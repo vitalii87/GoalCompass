@@ -1,0 +1,148 @@
+# src/storage/db.py
+
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+from typing import Dict, Optional
+
+
+class SQLiteStorage:
+    """
+    Single responsibility:
+    - initialize SQLite database
+    - write activity chunks
+    - read daily totals
+
+    Table stores aggregated activity chunks:
+    date + process + category + seconds
+    """
+
+    def __init__(self, db_path: str) -> None:
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_db()
+
+    def _get_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _init_db(self) -> None:
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS activity_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    activity_date TEXT NOT NULL,
+                    process_name TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    seconds INTEGER NOT NULL CHECK(seconds >= 0),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_activity_logs_date
+                ON activity_logs(activity_date)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_activity_logs_date_category
+                ON activity_logs(activity_date, category)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_activity_logs_date_process
+                ON activity_logs(activity_date, process_name)
+                """
+            )
+            conn.commit()
+
+    def log_activity(
+        self,
+        activity_date: str,
+        process_name: str,
+        category: str,
+        seconds: int,
+    ) -> None:
+        if seconds <= 0:
+            return
+
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO activity_logs (
+                    activity_date,
+                    process_name,
+                    category,
+                    seconds
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (activity_date, process_name, category, seconds),
+            )
+            conn.commit()
+
+    def get_daily_totals_by_category(self, activity_date: str) -> Dict[str, int]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT category, COALESCE(SUM(seconds), 0) AS total_seconds
+                FROM activity_logs
+                WHERE activity_date = ?
+                GROUP BY category
+                """,
+                (activity_date,),
+            ).fetchall()
+
+        return {row["category"]: int(row["total_seconds"]) for row in rows}
+
+    def get_daily_totals_by_process(self, activity_date: str) -> Dict[str, int]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT process_name, COALESCE(SUM(seconds), 0) AS total_seconds
+                FROM activity_logs
+                WHERE activity_date = ?
+                GROUP BY process_name
+                """,
+                (activity_date,),
+            ).fetchall()
+
+        return {row["process_name"]: int(row["total_seconds"]) for row in rows}
+
+    def get_category_total(self, activity_date: str, category: str) -> int:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT COALESCE(SUM(seconds), 0) AS total_seconds
+                FROM activity_logs
+                WHERE activity_date = ? AND category = ?
+                """,
+                (activity_date, category),
+            ).fetchone()
+
+        return int(row["total_seconds"]) if row else 0
+
+    def get_process_total(self, activity_date: str, process_name: str) -> int:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT COALESCE(SUM(seconds), 0) AS total_seconds
+                FROM activity_logs
+                WHERE activity_date = ? AND process_name = ?
+                """,
+                (activity_date, process_name),
+            ).fetchone()
+
+        return int(row["total_seconds"]) if row else 0
+
+    def get_all_totals_for_date(self, activity_date: str) -> Dict[str, Dict[str, int]]:
+        return {
+            "by_category": self.get_daily_totals_by_category(activity_date),
+            "by_process": self.get_daily_totals_by_process(activity_date),
+        }
