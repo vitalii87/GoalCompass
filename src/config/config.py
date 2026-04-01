@@ -16,6 +16,23 @@ DB_PATH = str(DATA_DIR / "lazy_coach.db")
 
 CHECK_INTERVAL_SECONDS = 2
 LIVE_COUNTER_PRINT_INTERVAL_SECONDS = 10
+IDLE_THRESHOLD_SECONDS = 60
+
+# --------------------------------------------------
+# Ignored processes
+# --------------------------------------------------
+
+IGNORED_PROCESSES = {
+    "explorer.exe",
+    "searchhost.exe",
+    "shellhost.exe",
+    "shellexperiencehost.exe",
+    "textinputhost.exe",
+    "lockapp.exe",
+    "dwm.exe",
+    "asusoptimization.exe",
+    "widgets.exe",
+}
 
 # --------------------------------------------------
 # Process categories
@@ -54,6 +71,7 @@ TIME_WASTING = {
 }
 
 UNKNOWN_CATEGORY = "unknown"
+IGNORED_CATEGORY = "ignored"
 
 # --------------------------------------------------
 # Rules
@@ -79,6 +97,12 @@ RULES = {
         "message": "Денний ліміт на time-wasting майже або вже пробитий.",
     },
     "unknown": {
+        "mode": "none",
+        "threshold_seconds": 0,
+        "notify_on_enter": False,
+        "message": "",
+    },
+    "ignored": {
         "mode": "none",
         "threshold_seconds": 0,
         "notify_on_enter": False,

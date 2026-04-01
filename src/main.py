@@ -5,10 +5,14 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, Optional
 
+from src.activity.user_activity import UserActivityMonitor
 from src.classifier.classifier import classify_process_name
 from src.config.config import (
     CHECK_INTERVAL_SECONDS,
     DB_PATH,
+    IDLE_THRESHOLD_SECONDS,
+    IGNORED_CATEGORY,
+    IGNORED_PROCESSES,
     LIVE_COUNTER_PRINT_INTERVAL_SECONDS,
     RULES,
 )
@@ -19,10 +23,6 @@ from src.tracker.live_counter import LiveCounter
 
 
 def log_message(message: str) -> None:
-    """
-    Fallback-safe logger wrapper.
-    Replace with your logger import if needed.
-    """
     try:
         from src.logger.logger import log
         log(message)
@@ -31,11 +31,6 @@ def log_message(message: str) -> None:
 
 
 def get_rule_for_category(category: str) -> Dict[str, Any]:
-    """
-    Thin rule accessor.
-    If your Sprint 1 already has a rules engine function,
-    you can switch this wrapper to it.
-    """
     try:
         from src.coach.rules_engine import get_rule_for_category as real_get_rule
         return real_get_rule(category)
@@ -52,13 +47,6 @@ def get_rule_for_category(category: str) -> Dict[str, Any]:
 
 
 def safe_get_process_info() -> Dict[str, str]:
-    """
-    Expected normalized output:
-    {
-        "process_name": "...",
-        "window_title": "..."
-    }
-    """
     info = get_foreground_process_info()
 
     if isinstance(info, dict):
@@ -115,6 +103,7 @@ def format_seconds(seconds: int) -> str:
 def print_live_stats(counter: LiveCounter) -> None:
     session = counter.get_current_session_info()
     category_totals = counter.get_daily_totals_by_category()
+    state_totals = counter.get_daily_totals_by_state()
 
     log_message("=" * 60)
     log_message("LIVE STATS")
@@ -123,16 +112,23 @@ def print_live_stats(counter: LiveCounter) -> None:
         log_message(
             f"Current: process={session['process_name']} | "
             f"category={session['category']} | "
+            f"state={session['activity_state']} | "
             f"session={format_seconds(session['seconds'])}"
         )
     else:
         log_message("Current: no active session")
 
     if not category_totals:
-        log_message("Daily totals: empty")
+        log_message("Daily totals by category: empty")
     else:
         for category, total in sorted(category_totals.items()):
             log_message(f"Daily total [{category}] = {format_seconds(total)}")
+
+    if not state_totals:
+        log_message("Daily totals by state: empty")
+    else:
+        for state, total in sorted(state_totals.items()):
+            log_message(f"Daily total state [{state}] = {format_seconds(total)}")
 
     log_message("=" * 60)
 
@@ -140,12 +136,10 @@ def print_live_stats(counter: LiveCounter) -> None:
 def main() -> None:
     storage = SQLiteStorage(DB_PATH)
     counter = LiveCounter(storage)
+    activity_monitor = UserActivityMonitor(IDLE_THRESHOLD_SECONDS)
 
     last_print_time = time.time()
-
     last_notified_key: Optional[tuple[str, str]] = None
-    # key format: (process_name, mode)
-    # prevents spam while user stays in same already-thresholded state
 
     log_message("lazy_coach started")
 
@@ -155,11 +149,23 @@ def main() -> None:
             process_name = process_info["process_name"]
             window_title = process_info["window_title"]
 
+            if process_name in IGNORED_PROCESSES:
+                log_message(
+                    f"Ignored process: {process_name} | window={window_title}"
+                )
+                time.sleep(CHECK_INTERVAL_SECONDS)
+                continue
+
             category = safe_classify(process_name)
+            if not category:
+                category = IGNORED_CATEGORY
+
+            activity_state = activity_monitor.get_activity_state()
 
             counter.update(
                 process_name=process_name,
                 category=category,
+                activity_state=activity_state,
                 seconds=CHECK_INTERVAL_SECONDS,
             )
 
@@ -187,6 +193,7 @@ def main() -> None:
                         f"{message}\n"
                         f"Process: {process_name}\n"
                         f"Category: {category}\n"
+                        f"State: {activity_state}\n"
                         f"Window: {window_title}\n"
                         f"Session: {format_seconds(current_session_seconds)}\n"
                         f"Daily total [{category}]: {format_seconds(daily_category_total_seconds)}"
@@ -195,7 +202,6 @@ def main() -> None:
                     log_message(f"NOTIFY -> {full_message}")
                     last_notified_key = notify_key
             else:
-                # reset when below threshold or harmless state
                 if session and session["process_name"] != process_name:
                     last_notified_key = None
                 elif rule.get("mode") == "none":

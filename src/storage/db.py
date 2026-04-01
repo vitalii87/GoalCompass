@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 
 class SQLiteStorage:
     """
-    Single responsibility:
-    - initialize SQLite database
+    SQLite storage:
+    - initialize database
+    - migrate schema if needed
     - write activity chunks
     - read daily totals
-
-    Table stores aggregated activity chunks:
-    date + process + category + seconds
     """
 
     def __init__(self, db_path: str) -> None:
@@ -37,11 +35,16 @@ class SQLiteStorage:
                     activity_date TEXT NOT NULL,
                     process_name TEXT NOT NULL,
                     category TEXT NOT NULL,
+                    activity_state TEXT NOT NULL DEFAULT 'active',
                     seconds INTEGER NOT NULL CHECK(seconds >= 0),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """
             )
+            conn.commit()
+
+            self._migrate_add_activity_state_if_needed(conn)
+
             conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_activity_logs_date
@@ -60,6 +63,25 @@ class SQLiteStorage:
                 ON activity_logs(activity_date, process_name)
                 """
             )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_activity_logs_date_state
+                ON activity_logs(activity_date, activity_state)
+                """
+            )
+            conn.commit()
+
+    def _migrate_add_activity_state_if_needed(self, conn: sqlite3.Connection) -> None:
+        columns = conn.execute("PRAGMA table_info(activity_logs)").fetchall()
+        column_names = {row["name"] for row in columns}
+
+        if "activity_state" not in column_names:
+            conn.execute(
+                """
+                ALTER TABLE activity_logs
+                ADD COLUMN activity_state TEXT NOT NULL DEFAULT 'active'
+                """
+            )
             conn.commit()
 
     def log_activity(
@@ -67,6 +89,7 @@ class SQLiteStorage:
         activity_date: str,
         process_name: str,
         category: str,
+        activity_state: str,
         seconds: int,
     ) -> None:
         if seconds <= 0:
@@ -79,11 +102,12 @@ class SQLiteStorage:
                     activity_date,
                     process_name,
                     category,
+                    activity_state,
                     seconds
                 )
-                VALUES (?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (activity_date, process_name, category, seconds),
+                (activity_date, process_name, category, activity_state, seconds),
             )
             conn.commit()
 
@@ -115,6 +139,20 @@ class SQLiteStorage:
 
         return {row["process_name"]: int(row["total_seconds"]) for row in rows}
 
+    def get_daily_totals_by_state(self, activity_date: str) -> Dict[str, int]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT activity_state, COALESCE(SUM(seconds), 0) AS total_seconds
+                FROM activity_logs
+                WHERE activity_date = ?
+                GROUP BY activity_state
+                """,
+                (activity_date,),
+            ).fetchall()
+
+        return {row["activity_state"]: int(row["total_seconds"]) for row in rows}
+
     def get_category_total(self, activity_date: str, category: str) -> int:
         with self._get_connection() as conn:
             row = conn.execute(
@@ -145,4 +183,5 @@ class SQLiteStorage:
         return {
             "by_category": self.get_daily_totals_by_category(activity_date),
             "by_process": self.get_daily_totals_by_process(activity_date),
+            "by_state": self.get_daily_totals_by_state(activity_date),
         }
