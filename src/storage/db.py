@@ -37,7 +37,7 @@ class SQLiteStorage:
                     category TEXT NOT NULL,
                     activity_state TEXT NOT NULL DEFAULT 'active',
                     seconds INTEGER NOT NULL CHECK(seconds >= 0),
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP DEFAULT (datetime('now', 'localtime'))
                 )
                 """
             )
@@ -85,12 +85,12 @@ class SQLiteStorage:
             conn.commit()
 
     def log_activity(
-        self,
-        activity_date: str,
-        process_name: str,
-        category: str,
-        activity_state: str,
-        seconds: int,
+            self,
+            activity_date: str,
+            process_name: str,
+            category: str,
+            activity_state: str,
+            seconds: int,
     ) -> None:
         if seconds <= 0:
             return
@@ -103,9 +103,10 @@ class SQLiteStorage:
                     process_name,
                     category,
                     activity_state,
-                    seconds
+                    seconds,
+                    created_at
                 )
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
                 """,
                 (activity_date, process_name, category, activity_state, seconds),
             )

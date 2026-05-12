@@ -52,7 +52,7 @@ def safe_get_process_info() -> Dict[str, str]:
     if isinstance(info, dict):
         return {
             "process_name": str(info.get("process_name", "unknown.exe")).lower(),
-            "window_title": str(info.get("window_title", "")),
+            "window_title": str(info.get("window_title", "")).strip(),
         }
 
     raise ValueError(
@@ -61,10 +61,26 @@ def safe_get_process_info() -> Dict[str, str]:
     )
 
 
-def safe_classify(process_name: str) -> str:
-    category = classify_process_name(process_name)
+def safe_classify(process_name: str, window_title: str) -> str:
+    """
+    Backward-compatible classifier wrapper.
+
+    First tries the new signature:
+        classify_process_name(process_name, window_title)
+
+    If classifier.py still has old signature:
+        classify_process_name(process_name)
+
+    then fallback safely.
+    """
+    try:
+        category = classify_process_name(process_name, window_title)
+    except TypeError:
+        category = classify_process_name(process_name)
+
     if not isinstance(category, str):
         raise ValueError("classify_process_name() must return a string category")
+
     return category
 
 
@@ -100,7 +116,7 @@ def format_seconds(seconds: int) -> str:
     return f"{secs}s"
 
 
-def print_live_stats(counter: LiveCounter) -> None:
+def print_live_stats(counter: LiveCounter, current_window_title: str = "") -> None:
     session = counter.get_current_session_info()
     category_totals = counter.get_daily_totals_by_category()
     state_totals = counter.get_daily_totals_by_state()
@@ -115,6 +131,7 @@ def print_live_stats(counter: LiveCounter) -> None:
             f"state={session['activity_state']} | "
             f"session={format_seconds(session['seconds'])}"
         )
+        log_message(f"Window title: {current_window_title or '[empty]'}")
     else:
         log_message("Current: no active session")
 
@@ -151,12 +168,12 @@ def main() -> None:
 
             if process_name in IGNORED_PROCESSES:
                 log_message(
-                    f"Ignored process: {process_name} | window={window_title}"
+                    f"Ignored process: {process_name} | window={window_title or '[empty]'}"
                 )
                 time.sleep(CHECK_INTERVAL_SECONDS)
                 continue
 
-            category = safe_classify(process_name)
+            category = safe_classify(process_name, window_title)
             if not category:
                 category = IGNORED_CATEGORY
 
@@ -194,7 +211,7 @@ def main() -> None:
                         f"Process: {process_name}\n"
                         f"Category: {category}\n"
                         f"State: {activity_state}\n"
-                        f"Window: {window_title}\n"
+                        f"Window: {window_title or '[empty]'}\n"
                         f"Session: {format_seconds(current_session_seconds)}\n"
                         f"Daily total [{category}]: {format_seconds(daily_category_total_seconds)}"
                     )
@@ -209,7 +226,7 @@ def main() -> None:
 
             now = time.time()
             if now - last_print_time >= LIVE_COUNTER_PRINT_INTERVAL_SECONDS:
-                print_live_stats(counter)
+                print_live_stats(counter, current_window_title=window_title)
                 last_print_time = now
 
             time.sleep(CHECK_INTERVAL_SECONDS)

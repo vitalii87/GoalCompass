@@ -1,5 +1,3 @@
-# src/config/config.py
-
 from pathlib import Path
 
 # --------------------------------------------------
@@ -35,7 +33,7 @@ IGNORED_PROCESSES = {
 }
 
 # --------------------------------------------------
-# Process categories
+# Process categories (LEVEL 1)
 # --------------------------------------------------
 
 PRODUCTIVE = {
@@ -64,17 +62,78 @@ TIME_WASTING = {
     "leagueclient.exe",
     "dota2.exe",
     "cs2.exe",
-    "chrome.exe",
-    "msedge.exe",
-    "firefox.exe",
-    "opera.exe",
+    "worldoftanks.exe",
 }
 
 UNKNOWN_CATEGORY = "unknown"
 IGNORED_CATEGORY = "ignored"
 
 # --------------------------------------------------
-# Rules
+# Title-aware rules (LEVEL 2)
+# --------------------------------------------------
+
+TITLE_RULES = {
+    "chrome.exe": {
+        "productive": [
+            "chatgpt",
+            "gmail",
+            "stackoverflow",
+            "stack overflow",
+            "github",
+            "docs",
+            "documentation",
+            "fastapi",
+            "pytest",
+            "python",
+            "pycharm",
+            "lazy_coach",
+            "агресів коуч",
+            "архітектура",
+            "sprint",
+            "німець",
+            "deutsch",
+            "fragewörter",
+            "а1",
+            "a1",
+        ],
+        "time_wasting": [
+            "youtube",
+            "twitch",
+            "netflix",
+            "tiktok",
+            "facebook",
+            "instagram",
+            "shorts",
+        ],
+        "distracting": [
+            "telegram",
+            "discord",
+            "messenger",
+            "whatsapp",
+        ],
+    },
+    "msedge.exe": {
+        "productive": [
+            "chatgpt",
+            "gmail",
+            "stackoverflow",
+            "github",
+            "docs",
+            "deutsch",
+            "німець",
+            "a1",
+        ],
+        "time_wasting": [
+            "youtube",
+            "twitch",
+            "netflix",
+            "tiktok",
+        ],
+    },
+}
+
+# --------------------------------------------------
+# Rules (coaching logic)
 # --------------------------------------------------
 
 RULES = {
