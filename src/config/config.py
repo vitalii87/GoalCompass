@@ -15,10 +15,25 @@ DB_PATH = str(DATA_DIR / "lazy_coach.db")
 CHECK_INTERVAL_SECONDS = 2
 LIVE_COUNTER_PRINT_INTERVAL_SECONDS = 10
 IDLE_THRESHOLD_SECONDS = 60
-
+UNKNOWN_SAVE_THRESHOLD_SECONDS = 30
 # --------------------------------------------------
 # Ignored processes
 # --------------------------------------------------
+
+# --------------------------------------------------
+# Feature flags
+# --------------------------------------------------
+
+ENABLE_UNKNOWN_TRACKING = True
+
+# Future modules.
+# Keep disabled by default to avoid API costs and unwanted auto-changes.
+ENABLE_AI_ANALYTICS = False
+ENABLE_AUTO_SORTER = False
+
+# Print top unknown
+TOP_UNKNOWN_PRINT_EVERY_SECONDS = 300
+TOP_UNKNOWN_LIMIT = 5
 
 IGNORED_PROCESSES = {
     "explorer.exe",

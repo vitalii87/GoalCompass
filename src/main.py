@@ -10,6 +10,9 @@ from src.classifier.classifier import classify_process_name
 from src.config.config import (
     CHECK_INTERVAL_SECONDS,
     DB_PATH,
+    ENABLE_AI_ANALYTICS,
+    ENABLE_AUTO_SORTER,
+    ENABLE_UNKNOWN_TRACKING,
     IDLE_THRESHOLD_SECONDS,
     IGNORED_CATEGORY,
     IGNORED_PROCESSES,
@@ -20,6 +23,7 @@ from src.monitor.process_monitor import get_foreground_process_info
 from src.notifier.notifier import notify
 from src.storage.db import SQLiteStorage
 from src.tracker.live_counter import LiveCounter
+from src.unknown.unknown_tracker import UnknownTracker
 
 
 def log_message(message: str) -> None:
@@ -62,17 +66,6 @@ def safe_get_process_info() -> Dict[str, str]:
 
 
 def safe_classify(process_name: str, window_title: str) -> str:
-    """
-    Backward-compatible classifier wrapper.
-
-    First tries the new signature:
-        classify_process_name(process_name, window_title)
-
-    If classifier.py still has old signature:
-        classify_process_name(process_name)
-
-    then fallback safely.
-    """
     try:
         category = classify_process_name(process_name, window_title)
     except TypeError:
@@ -153,12 +146,16 @@ def print_live_stats(counter: LiveCounter, current_window_title: str = "") -> No
 def main() -> None:
     storage = SQLiteStorage(DB_PATH)
     counter = LiveCounter(storage)
+    unknown_tracker = UnknownTracker(storage) if ENABLE_UNKNOWN_TRACKING else None
     activity_monitor = UserActivityMonitor(IDLE_THRESHOLD_SECONDS)
+
+    log_message(f"Unknown tracking: {'ON' if ENABLE_UNKNOWN_TRACKING else 'OFF'}")
+    log_message(f"AI analytics: {'ON' if ENABLE_AI_ANALYTICS else 'OFF'}")
+    log_message(f"Auto sorter: {'ON' if ENABLE_AUTO_SORTER else 'OFF'}")
+    log_message("lazy_coach started")
 
     last_print_time = time.time()
     last_notified_key: Optional[tuple[str, str]] = None
-
-    log_message("lazy_coach started")
 
     try:
         while True:
@@ -186,6 +183,14 @@ def main() -> None:
                 seconds=CHECK_INTERVAL_SECONDS,
             )
 
+            if unknown_tracker is not None:
+                unknown_tracker.update(
+                    process_name=process_name,
+                    window_title=window_title,
+                    category=category,
+                    seconds=CHECK_INTERVAL_SECONDS,
+                )
+
             rule = get_rule_for_category(category)
             session = counter.get_current_session_info()
 
@@ -203,22 +208,22 @@ def main() -> None:
 
             notify_key = (process_name, str(rule.get("mode", "none")))
 
-            if notify_now:
-                if last_notified_key != notify_key:
-                    message = rule.get("message", "Повернись до роботи.")
-                    full_message = (
-                        f"{message}\n"
-                        f"Process: {process_name}\n"
-                        f"Category: {category}\n"
-                        f"State: {activity_state}\n"
-                        f"Window: {window_title or '[empty]'}\n"
-                        f"Session: {format_seconds(current_session_seconds)}\n"
-                        f"Daily total [{category}]: {format_seconds(daily_category_total_seconds)}"
-                    )
-                    notify(full_message)
-                    log_message(f"NOTIFY -> {full_message}")
-                    last_notified_key = notify_key
-            else:
+            if notify_now and last_notified_key != notify_key:
+                message = rule.get("message", "Повернись до роботи.")
+                full_message = (
+                    f"{message}\n"
+                    f"Process: {process_name}\n"
+                    f"Category: {category}\n"
+                    f"State: {activity_state}\n"
+                    f"Window: {window_title or '[empty]'}\n"
+                    f"Session: {format_seconds(current_session_seconds)}\n"
+                    f"Daily total [{category}]: {format_seconds(daily_category_total_seconds)}"
+                )
+                notify(full_message)
+                log_message(f"NOTIFY -> {full_message}")
+                last_notified_key = notify_key
+
+            if not notify_now:
                 if session and session["process_name"] != process_name:
                     last_notified_key = None
                 elif rule.get("mode") == "none":
@@ -235,6 +240,10 @@ def main() -> None:
         log_message("lazy_coach stopped by user")
 
     finally:
+        if unknown_tracker is not None:
+            unknown_tracker.shutdown()
+            log_message("Unknown session flushed to database")
+
         counter.shutdown()
         log_message("Current session flushed to database")
 

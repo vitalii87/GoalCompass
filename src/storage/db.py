@@ -14,6 +14,7 @@ class SQLiteStorage:
     - migrate schema if needed
     - write activity chunks
     - read daily totals
+    - aggregate unknown titles for future classification
     """
 
     def __init__(self, db_path: str) -> None:
@@ -41,6 +42,22 @@ class SQLiteStorage:
                 )
                 """
             )
+
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS unknown_titles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    process_name TEXT NOT NULL,
+                    window_title TEXT NOT NULL,
+                    total_seconds INTEGER NOT NULL DEFAULT 0,
+                    times_seen INTEGER NOT NULL DEFAULT 0,
+                    first_seen TIMESTAMP DEFAULT (datetime('now', 'localtime')),
+                    last_seen TIMESTAMP DEFAULT (datetime('now', 'localtime')),
+                    UNIQUE(process_name, window_title)
+                )
+                """
+            )
+
             conn.commit()
 
             self._migrate_add_activity_state_if_needed(conn)
@@ -69,6 +86,12 @@ class SQLiteStorage:
                 ON activity_logs(activity_date, activity_state)
                 """
             )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_unknown_titles_total_seconds
+                ON unknown_titles(total_seconds)
+                """
+            )
             conn.commit()
 
     def _migrate_add_activity_state_if_needed(self, conn: sqlite3.Connection) -> None:
@@ -85,12 +108,12 @@ class SQLiteStorage:
             conn.commit()
 
     def log_activity(
-            self,
-            activity_date: str,
-            process_name: str,
-            category: str,
-            activity_state: str,
-            seconds: int,
+        self,
+        activity_date: str,
+        process_name: str,
+        category: str,
+        activity_state: str,
+        seconds: int,
     ) -> None:
         if seconds <= 0:
             return
@@ -111,6 +134,61 @@ class SQLiteStorage:
                 (activity_date, process_name, category, activity_state, seconds),
             )
             conn.commit()
+
+    def upsert_unknown_title(
+        self,
+        process_name: str,
+        window_title: str,
+        seconds: int,
+    ) -> None:
+        if seconds <= 0:
+            return
+
+        clean_title = window_title.strip()
+        if not clean_title:
+            return
+
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO unknown_titles (
+                    process_name,
+                    window_title,
+                    total_seconds,
+                    times_seen,
+                    first_seen,
+                    last_seen
+                )
+                VALUES (?, ?, ?, 1, datetime('now', 'localtime'), datetime('now', 'localtime'))
+                ON CONFLICT(process_name, window_title)
+                DO UPDATE SET
+                    total_seconds = total_seconds + excluded.total_seconds,
+                    times_seen = times_seen + 1,
+                    last_seen = datetime('now', 'localtime')
+                """,
+                (process_name, clean_title, seconds),
+            )
+            conn.commit()
+
+    def get_top_unknown_titles(self, limit: int = 20) -> list[dict]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    process_name,
+                    window_title,
+                    total_seconds,
+                    times_seen,
+                    first_seen,
+                    last_seen
+                FROM unknown_titles
+                ORDER BY total_seconds DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+        return [dict(row) for row in rows]
 
     def get_daily_totals_by_category(self, activity_date: str) -> Dict[str, int]:
         with self._get_connection() as conn:
