@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from src.classifier.title_rules import match_title_category
 from src.config.config import (
     DISTRACTING,
+    PERSONAL,
     PRODUCTIVE,
     TIME_WASTING,
     UNKNOWN_CATEGORY,
 )
-from src.classifier.title_rules import match_title_category
 
 
 def normalize_process_name(process_name: str | None) -> str:
@@ -26,19 +27,16 @@ def classify_process_name(
     if not normalized:
         return UNKNOWN_CATEGORY
 
-    # ------------------------------
-    # 1. Title-aware classification
-    # ------------------------------
     if window_title:
         title_category = match_title_category(normalized, window_title)
         if title_category:
             return title_category
 
-    # ------------------------------
-    # 2. Process-based fallback
-    # ------------------------------
     if normalized in PRODUCTIVE:
         return "productive"
+
+    if normalized in PERSONAL:
+        return "personal"
 
     if normalized in DISTRACTING:
         return "distracting"

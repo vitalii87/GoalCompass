@@ -85,8 +85,15 @@ TIME_WASTING = {
     "steamwebhelper.exe",
 }
 
+# додай після TIME_WASTING
+
+PERSONAL = {
+    "vlc.exe",
+}
+
 UNKNOWN_CATEGORY = "unknown"
 IGNORED_CATEGORY = "ignored"
+PERSONAL_CATEGORY = "personal"
 
 # --------------------------------------------------
 # Title-aware rules (LEVEL 2)
@@ -118,6 +125,23 @@ TITLE_RULES = {
             "linkedin",
             "штучний інтелект",
             "новизна",
+        ],
+        "personal": [
+            "google maps",
+            "карти google",
+            "kleinanzeigen",
+            "ebay classifieds",
+            "audi",
+            "roller",
+            "scooter",
+            "badeparadies",
+            "jobcenter",
+            "bank",
+            "exmo",
+            "btc",
+            "usdt",
+            "bitcoin",
+            "pornhub",
         ],
         "time_wasting": [
             "youtube",
@@ -166,6 +190,12 @@ TITLE_RULES = {
 
 RULES = {
     "productive": {
+        "mode": "none",
+        "threshold_seconds": 0,
+        "notify_on_enter": False,
+        "message": "",
+    },
+    "personal": {
         "mode": "none",
         "threshold_seconds": 0,
         "notify_on_enter": False,
