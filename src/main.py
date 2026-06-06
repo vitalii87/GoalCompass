@@ -29,6 +29,7 @@ from src.unknown.unknown_tracker import UnknownTracker
 def log_message(message: str) -> None:
     try:
         from src.logger.logger import log
+
         log(message)
     except Exception:
         print(message)
@@ -37,6 +38,7 @@ def log_message(message: str) -> None:
 def get_rule_for_category(category: str) -> Dict[str, Any]:
     try:
         from src.coach.rules_engine import get_rule_for_category as real_get_rule
+
         return real_get_rule(category)
     except Exception:
         return RULES.get(
@@ -157,6 +159,11 @@ def main() -> None:
     last_print_time = time.time()
     last_notified_key: Optional[tuple[str, str]] = None
 
+    is_in_ignored_mode = False
+    ignored_started_at: Optional[float] = None
+    ignored_last_process = ""
+    ignored_last_window = ""
+
     try:
         while True:
             process_info = safe_get_process_info()
@@ -164,11 +171,38 @@ def main() -> None:
             window_title = process_info["window_title"]
 
             if process_name in IGNORED_PROCESSES:
-                log_message(
-                    f"Ignored process: {process_name} | window={window_title or '[empty]'}"
-                )
+                if not is_in_ignored_mode:
+                    is_in_ignored_mode = True
+                    ignored_started_at = time.time()
+                    log_message(
+                        f"Ignored mode entered: "
+                        f"{process_name} | window={window_title or '[empty]'}"
+                    )
+
+                ignored_last_process = process_name
+                ignored_last_window = window_title
+                last_notified_key = None
+
                 time.sleep(CHECK_INTERVAL_SECONDS)
                 continue
+
+            if is_in_ignored_mode:
+                ignored_duration = 0
+
+                if ignored_started_at is not None:
+                    ignored_duration = int(time.time() - ignored_started_at)
+
+                log_message(
+                    f"Ignored mode exited: "
+                    f"last={ignored_last_process or '[unknown]'} | "
+                    f"window={ignored_last_window or '[empty]'} | "
+                    f"duration={format_seconds(ignored_duration)}"
+                )
+
+                is_in_ignored_mode = False
+                ignored_started_at = None
+                ignored_last_process = ""
+                ignored_last_window = ""
 
             category = safe_classify(process_name, window_title)
             if not category:
@@ -217,7 +251,8 @@ def main() -> None:
                     f"State: {activity_state}\n"
                     f"Window: {window_title or '[empty]'}\n"
                     f"Session: {format_seconds(current_session_seconds)}\n"
-                    f"Daily total [{category}]: {format_seconds(daily_category_total_seconds)}"
+                    f"Daily total [{category}]: "
+                    f"{format_seconds(daily_category_total_seconds)}"
                 )
                 notify(full_message)
                 log_message(f"NOTIFY -> {full_message}")

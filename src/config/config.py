@@ -78,6 +78,11 @@ TIME_WASTING = {
     "dota2.exe",
     "cs2.exe",
     "worldoftanks.exe",
+    "minecraft.exe",
+    "javaw.exe",
+    "mow2.exe",
+    "wgc.exe",
+    "steamwebhelper.exe",
 }
 
 UNKNOWN_CATEGORY = "unknown"
@@ -110,6 +115,9 @@ TITLE_RULES = {
             "fragewörter",
             "а1",
             "a1",
+            "linkedin",
+            "штучний інтелект",
+            "новизна",
         ],
         "time_wasting": [
             "youtube",
@@ -119,6 +127,11 @@ TITLE_RULES = {
             "facebook",
             "instagram",
             "shorts",
+            "аніме",
+            "anime",
+            "людина-бензопила",
+            "wargaming",
+            "premium shop",
         ],
         "distracting": [
             "telegram",
