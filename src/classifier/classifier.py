@@ -3,13 +3,8 @@
 from __future__ import annotations
 
 from src.classifier.title_rules import match_title_category
-from src.config.config import (
-    DISTRACTING,
-    PERSONAL,
-    PRODUCTIVE,
-    TIME_WASTING,
-    UNKNOWN_CATEGORY,
-)
+from src.config.config import UNKNOWN_CATEGORY
+from src.profiles.profile_loader import get_profile
 
 
 def normalize_process_name(process_name: str | None) -> str:
@@ -32,16 +27,18 @@ def classify_process_name(
         if title_category:
             return title_category
 
-    if normalized in PRODUCTIVE:
+    profile = get_profile()
+
+    if normalized in profile["productive"]:
         return "productive"
 
-    if normalized in PERSONAL:
+    if normalized in profile["personal"]:
         return "personal"
 
-    if normalized in DISTRACTING:
+    if normalized in profile["distracting"]:
         return "distracting"
 
-    if normalized in TIME_WASTING:
+    if normalized in profile["time_wasting"]:
         return "time_wasting"
 
     return UNKNOWN_CATEGORY

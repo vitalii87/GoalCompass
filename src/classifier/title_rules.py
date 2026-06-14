@@ -2,39 +2,34 @@
 
 from __future__ import annotations
 
-from src.config.config import TITLE_RULES
+from src.profiles.profile_loader import get_title_rules
 
 
-def normalize_title(title: str | None) -> str:
-    if not title:
+def normalize_title(window_title: str | None) -> str:
+    if not window_title:
         return ""
-    return title.lower()
+    return window_title.strip().lower()
 
 
-def match_title_category(process_name: str, window_title: str) -> str | None:
-    """
-    Returns category based on title rules if match found,
-    otherwise None.
-    """
+def match_title_category(
+    process_name: str | None,
+    window_title: str | None,
+) -> str | None:
+    if not process_name or not window_title:
+        return None
 
+    normalized_process = process_name.strip().lower()
     normalized_title = normalize_title(window_title)
 
-    if not normalized_title:
+    title_rules = get_title_rules()
+    process_rules = title_rules.get(normalized_process)
+
+    if not process_rules:
         return None
 
-    rules_for_process = TITLE_RULES.get(process_name)
-    if not rules_for_process:
-        return None
-
-    scores = {}
-
-    for category, keywords in rules_for_process.items():
+    for category, keywords in process_rules.items():
         for keyword in keywords:
-            if keyword in normalized_title:
-                scores[category] = scores.get(category, 0) + 1
+            if keyword.lower() in normalized_title:
+                return category
 
-    if not scores:
-        return None
-
-    # pick category with highest score
-    return max(scores, key=scores.get)
+    return None

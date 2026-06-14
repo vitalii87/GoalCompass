@@ -1,0 +1,96 @@
+# src/profiles/default_profile.py
+
+PROFILE = {
+    "productive": {
+        "pycharm64.exe",
+        "code.exe",
+    },
+    "personal": {
+        "vlc.exe",
+    },
+    "time_wasting": {
+        "worldoftanks.exe",
+        "minecraft.exe",
+        "javaw.exe",
+        "mow2.exe",
+        "wgc.exe",
+        "steamwebhelper.exe",
+    },
+    "distracting": {
+        "telegram.exe",
+        "discord.exe",
+    },
+}
+
+
+TITLE_RULES = {
+    "chrome.exe": {
+        "productive": [
+            "chatgpt",
+            "github",
+            "stackoverflow",
+            "stack overflow",
+            "docs",
+            "documentation",
+            "fastapi",
+            "pytest",
+            "python",
+            "pycharm",
+            "lazy_coach",
+            "агресів коуч",
+            "архітектура",
+            "sprint",
+            "linkedin",
+            "qa вакансії",
+            "remote qa",
+            "glassdoor",
+            "middle qa engineer",
+            "automation testing",
+            "splitmetrics",
+            "штучний інтелект",
+            "новизна",
+            "німець",
+            "deutsch",
+            "fragewörter",
+            "а1",
+            "a1",
+        ],
+        "personal": [
+            "google maps",
+            "карти google",
+            "kleinanzeigen",
+            "ebay classifieds",
+            "audi",
+            "roller",
+            "scooter",
+            "badeparadies",
+            "jobcenter",
+            "bank",
+            "exmo",
+            "btc",
+            "usdt",
+            "bitcoin",
+            "pornhub",
+        ],
+        "time_wasting": [
+            "youtube",
+            "twitch",
+            "netflix",
+            "tiktok",
+            "facebook",
+            "instagram",
+            "shorts",
+            "аніме",
+            "anime",
+            "людина-бензопила",
+            "wargaming",
+            "premium shop",
+        ],
+        "distracting": [
+            "telegram",
+            "discord",
+            "messenger",
+            "whatsapp",
+        ],
+    }
+}
