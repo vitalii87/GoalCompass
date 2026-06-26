@@ -1,0 +1,5 @@
+LONG_SESSION = "long_session"
+DAILY_LIMIT_EXCEEDED = "daily_limit_exceeded"
+FOCUS_SESSION_COMPLETED = "focus_session_completed"
+RAPID_WINDOW_SWITCHING = "rapid_window_switching"
+LATE_NIGHT_ACTIVITY = "late_night_activity"

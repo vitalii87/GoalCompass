@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import date
 from typing import Any, Dict, Optional
 
 from src.activity.user_activity import UserActivityMonitor
@@ -19,8 +20,12 @@ from src.config.config import (
     LIVE_COUNTER_PRINT_INTERVAL_SECONDS,
     RULES,
 )
+from src.goals.goal_alignment import GoalAlignmentEngine
+from src.goals.goal_loader import load_goals
 from src.monitor.process_monitor import get_foreground_process_info
 from src.notifier.notifier import notify
+from src.outcomes.outcome_engine import OutcomeEngine
+from src.signals.signals_engine import SignalsEngine
 from src.storage.db import SQLiteStorage
 from src.tracker.live_counter import LiveCounter
 from src.unknown.unknown_tracker import UnknownTracker
@@ -145,19 +150,121 @@ def print_live_stats(counter: LiveCounter, current_window_title: str = "") -> No
     log_message("=" * 60)
 
 
+def process_goal_pipeline(
+    storage: SQLiteStorage,
+    signals_engine: SignalsEngine,
+    outcome_engine: OutcomeEngine,
+    goal_alignment_engine: GoalAlignmentEngine,
+    goals: list,
+    process_name: str,
+    category: str,
+    activity_state: str,
+    current_session_seconds: int,
+    emitted_signal_keys: set[tuple[str, str, str, int]],
+) -> None:
+    """
+    Sprint 4.2 pipeline:
+
+    process/category/session/activity_state
+        -> milestone Signal
+        -> Outcome
+        -> GoalAlignmentResult
+        -> goal_events DB
+
+    goal_events are raw alignment events.
+    They are NOT effectiveness conclusions.
+    """
+
+    signals = signals_engine.generate_for_session(
+        process_name=process_name,
+        category=category,
+        seconds=current_session_seconds,
+        activity_state=activity_state,
+    )
+
+    for signal in signals:
+        threshold_seconds = int(signal.metadata.get("threshold_seconds", 0))
+
+        signal_key = (
+            signal.process_name,
+            signal.category,
+            signal.signal_type,
+            threshold_seconds,
+        )
+
+        if signal_key in emitted_signal_keys:
+            continue
+
+        emitted_signal_keys.add(signal_key)
+
+        log_message("")
+        log_message("SIGNAL:")
+        log_message(str(signal))
+
+        outcome = outcome_engine.generate_from_signal(signal)
+
+        if outcome is None:
+            log_message("")
+            log_message("OUTCOME:")
+            log_message("No outcome generated from signal")
+            continue
+
+        log_message("")
+        log_message("OUTCOME:")
+        log_message(str(outcome))
+
+        log_message("")
+        log_message("GOAL ALIGNMENTS:")
+
+        active_goals = [goal for goal in goals if getattr(goal, "is_active", True)]
+
+        if not active_goals:
+            log_message("No active goals found")
+            continue
+
+        for goal in active_goals:
+            alignment = goal_alignment_engine.evaluate(
+                goal=goal,
+                outcome=outcome,
+            )
+            log_message(str(alignment))
+
+            if alignment.alignment_score != 0:
+                storage.log_goal_event(
+                    event_date=date.today().isoformat(),
+                    goal_id=alignment.goal_id,
+                    outcome_type=alignment.outcome_type,
+                    alignment_score=alignment.alignment_score,
+                    process_name=signal.process_name,
+                    category=signal.category,
+                    signal_type=signal.signal_type,
+                    seconds=signal.seconds,
+                    message=alignment.message,
+                )
+
+
 def main() -> None:
     storage = SQLiteStorage(DB_PATH)
     counter = LiveCounter(storage)
     unknown_tracker = UnknownTracker(storage) if ENABLE_UNKNOWN_TRACKING else None
     activity_monitor = UserActivityMonitor(IDLE_THRESHOLD_SECONDS)
 
+    signals_engine = SignalsEngine()
+    outcome_engine = OutcomeEngine()
+    goal_alignment_engine = GoalAlignmentEngine()
+    goals = load_goals()
+
     log_message(f"Unknown tracking: {'ON' if ENABLE_UNKNOWN_TRACKING else 'OFF'}")
     log_message(f"AI analytics: {'ON' if ENABLE_AI_ANALYTICS else 'OFF'}")
     log_message(f"Auto sorter: {'ON' if ENABLE_AUTO_SORTER else 'OFF'}")
+    log_message(f"Loaded goals: {len(goals)}")
     log_message("lazy_coach started")
 
     last_print_time = time.time()
     last_notified_key: Optional[tuple[str, str]] = None
+
+    emitted_signal_keys: set[tuple[str, str, str, int]] = set()
+    last_session_identity: Optional[tuple[str, str, str, str]] = None
 
     is_in_ignored_mode = False
     ignored_started_at: Optional[float] = None
@@ -210,8 +317,20 @@ def main() -> None:
 
             activity_state = activity_monitor.get_activity_state()
 
+            session_identity = (
+                process_name,
+                category,
+                activity_state,
+                window_title,
+            )
+
+            if session_identity != last_session_identity:
+                emitted_signal_keys.clear()
+                last_session_identity = session_identity
+
             counter.update(
                 process_name=process_name,
+                window_title=window_title,
                 category=category,
                 activity_state=activity_state,
                 seconds=CHECK_INTERVAL_SECONDS,
@@ -233,6 +352,19 @@ def main() -> None:
                 current_session_seconds = int(session["seconds"])
 
             daily_category_total_seconds = counter.get_daily_total_by_category(category)
+
+            process_goal_pipeline(
+                storage=storage,
+                signals_engine=signals_engine,
+                outcome_engine=outcome_engine,
+                goal_alignment_engine=goal_alignment_engine,
+                goals=goals,
+                process_name=process_name,
+                category=category,
+                activity_state=activity_state,
+                current_session_seconds=current_session_seconds,
+                emitted_signal_keys=emitted_signal_keys,
+            )
 
             notify_now = should_notify(
                 rule=rule,
@@ -261,6 +393,8 @@ def main() -> None:
             if not notify_now:
                 if session and session["process_name"] != process_name:
                     last_notified_key = None
+                    emitted_signal_keys.clear()
+                    last_session_identity = None
                 elif rule.get("mode") == "none":
                     last_notified_key = None
 

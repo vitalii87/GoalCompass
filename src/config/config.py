@@ -36,7 +36,6 @@ TOP_UNKNOWN_PRINT_EVERY_SECONDS = 300
 TOP_UNKNOWN_LIMIT = 5
 
 IGNORED_PROCESSES = {
-    "explorer.exe",
     "searchhost.exe",
     "shellhost.exe",
     "shellexperiencehost.exe",

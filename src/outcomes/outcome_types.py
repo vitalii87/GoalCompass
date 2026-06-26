@@ -1,0 +1,5 @@
+PRODUCTIVE_ACTIVITY = "productive_activity"
+FOCUS_SESSION = "focus_session"
+TIME_WASTED = "time_wasted"
+DISTRACTION = "distraction"
+PERSONAL_TASK_COMPLETED = "personal_task_completed"

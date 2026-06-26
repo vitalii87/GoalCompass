@@ -4,9 +4,11 @@ PROFILE = {
     "productive": {
         "pycharm64.exe",
         "code.exe",
+        "chrome.exe",
     },
     "personal": {
         "vlc.exe",
+        "explorer.exe",
     },
     "time_wasting": {
         "worldoftanks.exe",
@@ -21,7 +23,6 @@ PROFILE = {
         "discord.exe",
     },
 }
-
 
 TITLE_RULES = {
     "chrome.exe": {
@@ -51,25 +52,24 @@ TITLE_RULES = {
             "новизна",
             "німець",
             "deutsch",
-            "fragewörter",
-            "а1",
             "a1",
+            "b1",
         ],
         "personal": [
             "google maps",
             "карти google",
             "kleinanzeigen",
-            "ebay classifieds",
+            "ebay",
             "audi",
             "roller",
             "scooter",
             "badeparadies",
             "jobcenter",
             "bank",
-            "exmo",
             "btc",
-            "usdt",
             "bitcoin",
+            "usdt",
+            "exmo",
             "pornhub",
         ],
         "time_wasting": [
@@ -79,9 +79,8 @@ TITLE_RULES = {
             "tiktok",
             "facebook",
             "instagram",
-            "shorts",
-            "аніме",
             "anime",
+            "аніме",
             "людина-бензопила",
             "wargaming",
             "premium shop",
@@ -94,3 +93,33 @@ TITLE_RULES = {
         ],
     }
 }
+
+GOALS = [
+    {
+        "goal_id": "reduce_gaming_001",
+        "goal_type": "reduce_gaming",
+        "title": "Reduce gaming time",
+        "related_outcomes": [],
+        "conflicting_outcomes": [
+            "time_wasted",
+        ],
+    },
+    {
+        "goal_id": "build_project_001",
+        "goal_type": "build_project",
+        "title": "Build GoalCompass",
+        "related_outcomes": [
+            "focus_session",
+        ],
+        "conflicting_outcomes": [],
+    },
+    {
+        "goal_id": "german_b1_001",
+        "goal_type": "german_b1",
+        "title": "Reach German B1",
+        "related_outcomes": [
+            "learning_session",
+        ],
+        "conflicting_outcomes": [],
+    },
+]

@@ -2,56 +2,31 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date
-from typing import Dict, Optional
+from typing import Optional
 
 from src.storage.db import SQLiteStorage
 
 
-@dataclass
-class CurrentActivity:
-    process_name: str
-    category: str
-    activity_state: str
-    seconds: int = 0
-
-
 class LiveCounter:
     """
-    Runtime counter that:
-    - tracks current activity chunk in memory
-    - flushes completed chunks into SQLite
-    - exposes live daily totals including current in-memory chunk
+    Runtime activity counter.
+
+    Responsibilities:
+    - track current foreground session
+    - flush finished sessions to SQLite
+    - expose daily totals for live stats
     """
 
     def __init__(self, storage: SQLiteStorage) -> None:
         self.storage = storage
-        self.current_date = self._today_str()
+        self.current_activity_date = date.today().isoformat()
 
-        persisted = self.storage.get_all_totals_for_date(self.current_date)
-        self.daily_category_totals: Dict[str, int] = dict(persisted["by_category"])
-        self.daily_process_totals: Dict[str, int] = dict(persisted["by_process"])
-        self.daily_state_totals: Dict[str, int] = dict(persisted["by_state"])
-
-        self.current_activity: Optional[CurrentActivity] = None
-
-    def _today_str(self) -> str:
-        return date.today().isoformat()
-
-    def _rollover_if_new_day(self) -> None:
-        today = self._today_str()
-        if today == self.current_date:
-            return
-
-        self.flush_current_activity()
-
-        self.current_date = today
-        persisted = self.storage.get_all_totals_for_date(self.current_date)
-        self.daily_category_totals = dict(persisted["by_category"])
-        self.daily_process_totals = dict(persisted["by_process"])
-        self.daily_state_totals = dict(persisted["by_state"])
-        self.current_activity = None
+        self.current_process_name: Optional[str] = None
+        self.current_window_title: str = ""
+        self.current_category: Optional[str] = None
+        self.current_activity_state: Optional[str] = None
+        self.current_seconds: int = 0
 
     def update(
         self,
@@ -59,131 +34,118 @@ class LiveCounter:
         category: str,
         activity_state: str,
         seconds: int,
+        window_title: str = "",
     ) -> None:
         if seconds <= 0:
             return
 
-        self._rollover_if_new_day()
+        today = date.today().isoformat()
 
-        if self.current_activity is None:
-            self.current_activity = CurrentActivity(
-                process_name=process_name,
-                category=category,
-                activity_state=activity_state,
-                seconds=seconds,
-            )
-            return
+        if today != self.current_activity_date:
+            self._flush_current_session()
+            self.current_activity_date = today
 
-        same_process = self.current_activity.process_name == process_name
-        same_category = self.current_activity.category == category
-        same_state = self.current_activity.activity_state == activity_state
-
-        if same_process and same_category and same_state:
-            self.current_activity.seconds += seconds
-            return
-
-        self.flush_current_activity()
-        self.current_activity = CurrentActivity(
+        if self._is_same_session(
             process_name=process_name,
             category=category,
             activity_state=activity_state,
-            seconds=seconds,
-        )
-
-    def flush_current_activity(self) -> None:
-        if self.current_activity is None:
+            window_title=window_title,
+        ):
+            self.current_seconds += seconds
             return
 
-        seconds = self.current_activity.seconds
-        if seconds > 0:
-            self.storage.log_activity(
-                activity_date=self.current_date,
-                process_name=self.current_activity.process_name,
-                category=self.current_activity.category,
-                activity_state=self.current_activity.activity_state,
-                seconds=seconds,
-            )
+        self._flush_current_session()
 
-            self.daily_category_totals[self.current_activity.category] = (
-                self.daily_category_totals.get(self.current_activity.category, 0) + seconds
-            )
-            self.daily_process_totals[self.current_activity.process_name] = (
-                self.daily_process_totals.get(self.current_activity.process_name, 0) + seconds
-            )
-            self.daily_state_totals[self.current_activity.activity_state] = (
-                self.daily_state_totals.get(self.current_activity.activity_state, 0) + seconds
-            )
+        self.current_process_name = process_name
+        self.current_window_title = window_title
+        self.current_category = category
+        self.current_activity_state = activity_state
+        self.current_seconds = seconds
 
-        self.current_activity = None
+    def _is_same_session(
+        self,
+        process_name: str,
+        category: str,
+        activity_state: str,
+        window_title: str,
+    ) -> bool:
+        return (
+            self.current_process_name == process_name
+            and self.current_category == category
+            and self.current_activity_state == activity_state
+            and self.current_window_title == window_title
+        )
 
-    def get_daily_total_by_category(self, category: str) -> int:
-        total = self.daily_category_totals.get(category, 0)
+    def _flush_current_session(self) -> None:
+        if (
+            self.current_process_name is None
+            or self.current_category is None
+            or self.current_activity_state is None
+            or self.current_seconds <= 0
+        ):
+            return
 
-        if self.current_activity is not None and self.current_activity.category == category:
-            total += self.current_activity.seconds
+        self.storage.log_activity(
+            activity_date=self.current_activity_date,
+            process_name=self.current_process_name,
+            window_title=self.current_window_title,
+            category=self.current_category,
+            activity_state=self.current_activity_state,
+            seconds=self.current_seconds,
+        )
 
-        return total
+        self.current_process_name = None
+        self.current_window_title = ""
+        self.current_category = None
+        self.current_activity_state = None
+        self.current_seconds = 0
 
-    def get_daily_total_by_process(self, process_name: str) -> int:
-        total = self.daily_process_totals.get(process_name, 0)
-
-        if self.current_activity is not None and self.current_activity.process_name == process_name:
-            total += self.current_activity.seconds
-
-        return total
-
-    def get_daily_total_by_state(self, activity_state: str) -> int:
-        total = self.daily_state_totals.get(activity_state, 0)
-
-        if self.current_activity is not None and self.current_activity.activity_state == activity_state:
-            total += self.current_activity.seconds
-
-        return total
-
-    def get_daily_totals_by_category(self) -> Dict[str, int]:
-        result = dict(self.daily_category_totals)
-
-        if self.current_activity is not None:
-            result[self.current_activity.category] = (
-                result.get(self.current_activity.category, 0)
-                + self.current_activity.seconds
-            )
-
-        return result
-
-    def get_daily_totals_by_process(self) -> Dict[str, int]:
-        result = dict(self.daily_process_totals)
-
-        if self.current_activity is not None:
-            result[self.current_activity.process_name] = (
-                result.get(self.current_activity.process_name, 0)
-                + self.current_activity.seconds
-            )
-
-        return result
-
-    def get_daily_totals_by_state(self) -> Dict[str, int]:
-        result = dict(self.daily_state_totals)
-
-        if self.current_activity is not None:
-            result[self.current_activity.activity_state] = (
-                result.get(self.current_activity.activity_state, 0)
-                + self.current_activity.seconds
-            )
-
-        return result
-
-    def get_current_session_info(self) -> Optional[dict]:
-        if self.current_activity is None:
+    def get_current_session_info(self) -> dict | None:
+        if (
+            self.current_process_name is None
+            or self.current_category is None
+            or self.current_activity_state is None
+        ):
             return None
 
         return {
-            "date": self.current_date,
-            "process_name": self.current_activity.process_name,
-            "category": self.current_activity.category,
-            "activity_state": self.current_activity.activity_state,
-            "seconds": self.current_activity.seconds,
+            "process_name": self.current_process_name,
+            "window_title": self.current_window_title,
+            "category": self.current_category,
+            "activity_state": self.current_activity_state,
+            "seconds": self.current_seconds,
         }
 
+    def get_daily_totals_by_category(self) -> dict[str, int]:
+        totals = self.storage.get_daily_totals_by_category(self.current_activity_date)
+
+        if self.current_category and self.current_seconds > 0:
+            totals[self.current_category] = (
+                totals.get(self.current_category, 0) + self.current_seconds
+            )
+
+        return totals
+
+    def get_daily_totals_by_state(self) -> dict[str, int]:
+        totals = self.storage.get_daily_totals_by_state(self.current_activity_date)
+
+        if self.current_activity_state and self.current_seconds > 0:
+            totals[self.current_activity_state] = (
+                totals.get(self.current_activity_state, 0) + self.current_seconds
+            )
+
+        return totals
+
+    def get_daily_total_by_category(self, category: str) -> int:
+        total = self.storage.get_category_total(
+            activity_date=self.current_activity_date,
+            category=category,
+        )
+
+        if self.current_category == category and self.current_seconds > 0:
+            total += self.current_seconds
+
+        return total
+
     def shutdown(self) -> None:
-        self.flush_current_activity()
+        self._flush_current_session()

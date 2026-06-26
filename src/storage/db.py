@@ -15,6 +15,7 @@ class SQLiteStorage:
     - write activity chunks
     - read daily totals
     - aggregate unknown titles for future classification
+    - write raw goal alignment events
     """
 
     def __init__(self, db_path: str) -> None:
@@ -35,6 +36,7 @@ class SQLiteStorage:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     activity_date TEXT NOT NULL,
                     process_name TEXT NOT NULL,
+                    window_title TEXT NOT NULL DEFAULT '',
                     category TEXT NOT NULL,
                     activity_state TEXT NOT NULL DEFAULT 'active',
                     seconds INTEGER NOT NULL CHECK(seconds >= 0),
@@ -58,9 +60,28 @@ class SQLiteStorage:
                 """
             )
 
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS goal_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_date TEXT NOT NULL,
+                    goal_id TEXT NOT NULL,
+                    outcome_type TEXT NOT NULL,
+                    alignment_score INTEGER NOT NULL,
+                    process_name TEXT,
+                    category TEXT,
+                    signal_type TEXT,
+                    seconds INTEGER NOT NULL DEFAULT 0,
+                    message TEXT,
+                    created_at TIMESTAMP DEFAULT (datetime('now', 'localtime'))
+                )
+                """
+            )
+
             conn.commit()
 
             self._migrate_add_activity_state_if_needed(conn)
+            self._migrate_add_window_title_if_needed(conn)
 
             conn.execute(
                 """
@@ -88,10 +109,35 @@ class SQLiteStorage:
             )
             conn.execute(
                 """
+                CREATE INDEX IF NOT EXISTS idx_activity_logs_date_title
+                ON activity_logs(activity_date, window_title)
+                """
+            )
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_unknown_titles_total_seconds
                 ON unknown_titles(total_seconds)
                 """
             )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_goal_events_date
+                ON goal_events(event_date)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_goal_events_goal_id
+                ON goal_events(goal_id)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_goal_events_date_goal
+                ON goal_events(event_date, goal_id)
+                """
+            )
+
             conn.commit()
 
     def _migrate_add_activity_state_if_needed(self, conn: sqlite3.Connection) -> None:
@@ -107,6 +153,19 @@ class SQLiteStorage:
             )
             conn.commit()
 
+    def _migrate_add_window_title_if_needed(self, conn: sqlite3.Connection) -> None:
+        columns = conn.execute("PRAGMA table_info(activity_logs)").fetchall()
+        column_names = {row["name"] for row in columns}
+
+        if "window_title" not in column_names:
+            conn.execute(
+                """
+                ALTER TABLE activity_logs
+                ADD COLUMN window_title TEXT NOT NULL DEFAULT ''
+                """
+            )
+            conn.commit()
+
     def log_activity(
         self,
         activity_date: str,
@@ -114,6 +173,7 @@ class SQLiteStorage:
         category: str,
         activity_state: str,
         seconds: int,
+        window_title: str = "",
     ) -> None:
         if seconds <= 0:
             return
@@ -124,14 +184,65 @@ class SQLiteStorage:
                 INSERT INTO activity_logs (
                     activity_date,
                     process_name,
+                    window_title,
                     category,
                     activity_state,
                     seconds,
                     created_at
                 )
-                VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
+                VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
                 """,
-                (activity_date, process_name, category, activity_state, seconds),
+                (
+                    activity_date,
+                    process_name,
+                    window_title,
+                    category,
+                    activity_state,
+                    seconds,
+                ),
+            )
+            conn.commit()
+
+    def log_goal_event(
+        self,
+        event_date: str,
+        goal_id: str,
+        outcome_type: str,
+        alignment_score: int,
+        process_name: str | None,
+        category: str | None,
+        signal_type: str | None,
+        seconds: int,
+        message: str,
+    ) -> None:
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO goal_events (
+                    event_date,
+                    goal_id,
+                    outcome_type,
+                    alignment_score,
+                    process_name,
+                    category,
+                    signal_type,
+                    seconds,
+                    message,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+                """,
+                (
+                    event_date,
+                    goal_id,
+                    outcome_type,
+                    alignment_score,
+                    process_name,
+                    category,
+                    signal_type,
+                    seconds,
+                    message,
+                ),
             )
             conn.commit()
 
@@ -232,6 +343,20 @@ class SQLiteStorage:
 
         return {row["activity_state"]: int(row["total_seconds"]) for row in rows}
 
+    def get_daily_goal_events_by_goal(self, event_date: str) -> Dict[str, int]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT goal_id, COALESCE(SUM(alignment_score), 0) AS total_score
+                FROM goal_events
+                WHERE event_date = ?
+                GROUP BY goal_id
+                """,
+                (event_date,),
+            ).fetchall()
+
+        return {row["goal_id"]: int(row["total_score"]) for row in rows}
+
     def get_category_total(self, activity_date: str, category: str) -> int:
         with self._get_connection() as conn:
             row = conn.execute(
@@ -263,4 +388,5 @@ class SQLiteStorage:
             "by_category": self.get_daily_totals_by_category(activity_date),
             "by_process": self.get_daily_totals_by_process(activity_date),
             "by_state": self.get_daily_totals_by_state(activity_date),
+            "by_goal": self.get_daily_goal_events_by_goal(activity_date),
         }
