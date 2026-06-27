@@ -12,7 +12,8 @@ class SQLiteStorage:
     SQLite storage:
     - initialize database
     - migrate schema if needed
-    - write activity chunks
+    - write desktop activity chunks
+    - write manual activity entries
     - read daily totals
     - aggregate unknown titles for future classification
     - write raw goal alignment events
@@ -40,6 +41,22 @@ class SQLiteStorage:
                     category TEXT NOT NULL,
                     activity_state TEXT NOT NULL DEFAULT 'active',
                     seconds INTEGER NOT NULL CHECK(seconds >= 0),
+                    created_at TIMESTAMP DEFAULT (datetime('now', 'localtime'))
+                )
+                """
+            )
+
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS manual_activity_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    activity_date TEXT NOT NULL,
+                    goal_id TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    seconds INTEGER NOT NULL CHECK(seconds >= 0),
+                    note TEXT NOT NULL DEFAULT '',
+                    source TEXT NOT NULL DEFAULT 'manual',
                     created_at TIMESTAMP DEFAULT (datetime('now', 'localtime'))
                 )
                 """
@@ -113,12 +130,33 @@ class SQLiteStorage:
                 ON activity_logs(activity_date, window_title)
                 """
             )
+
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_manual_activity_logs_date
+                ON manual_activity_logs(activity_date)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_manual_activity_logs_goal
+                ON manual_activity_logs(goal_id)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_manual_activity_logs_date_goal
+                ON manual_activity_logs(activity_date, goal_id)
+                """
+            )
+
             conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_unknown_titles_total_seconds
                 ON unknown_titles(total_seconds)
                 """
             )
+
             conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_goal_events_date
@@ -199,6 +237,46 @@ class SQLiteStorage:
                     category,
                     activity_state,
                     seconds,
+                ),
+            )
+            conn.commit()
+
+    def log_manual_activity(
+        self,
+        activity_date: str,
+        goal_id: str,
+        category: str,
+        title: str,
+        seconds: int,
+        note: str = "",
+        source: str = "manual",
+    ) -> None:
+        if seconds <= 0:
+            return
+
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO manual_activity_logs (
+                    activity_date,
+                    goal_id,
+                    category,
+                    title,
+                    seconds,
+                    note,
+                    source,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+                """,
+                (
+                    activity_date,
+                    goal_id,
+                    category,
+                    title,
+                    seconds,
+                    note,
+                    source,
                 ),
             )
             conn.commit()
@@ -379,6 +457,19 @@ class SQLiteStorage:
                 WHERE activity_date = ? AND process_name = ?
                 """,
                 (activity_date, process_name),
+            ).fetchone()
+
+        return int(row["total_seconds"]) if row else 0
+
+    def get_manual_total_for_goal(self, activity_date: str, goal_id: str) -> int:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT COALESCE(SUM(seconds), 0) AS total_seconds
+                FROM manual_activity_logs
+                WHERE activity_date = ? AND goal_id = ?
+                """,
+                (activity_date, goal_id),
             ).fetchone()
 
         return int(row["total_seconds"]) if row else 0

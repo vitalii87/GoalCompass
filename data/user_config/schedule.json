@@ -1,0 +1,89 @@
+[
+  {
+    "schedule_id": "german_course_weekdays",
+    "goal_id": "german_b1_001",
+    "title": "German course",
+    "category": "learning",
+    "days": [
+      "monday",
+      "tuesday",
+      "wednesday",
+      "thursday",
+      "friday"
+    ],
+    "start_time": "08:00",
+    "end_time": "12:00",
+    "counts_to_goal": true,
+    "confirmation_mode": "ask_confirmation",
+    "source": "planned_schedule"
+  },
+  {
+    "schedule_id": "german_course_commute_morning",
+    "goal_id": "german_b1_001",
+    "title": "Commute to German course",
+    "category": "commute",
+    "days": [
+      "monday",
+      "tuesday",
+      "wednesday",
+      "thursday",
+      "friday"
+    ],
+    "start_time": "06:45",
+    "end_time": "08:00",
+    "counts_to_goal": false,
+    "confirmation_mode": "none",
+    "source": "planned_schedule"
+  },
+  {
+    "schedule_id": "german_course_commute_return",
+    "goal_id": "german_b1_001",
+    "title": "Commute from German course",
+    "category": "commute",
+    "days": [
+      "monday",
+      "tuesday",
+      "wednesday",
+      "thursday",
+      "friday"
+    ],
+    "start_time": "12:00",
+    "end_time": "13:15",
+    "counts_to_goal": false,
+    "confirmation_mode": "none",
+    "source": "planned_schedule"
+  },
+  {
+    "schedule_id": "german_homework_evening",
+    "goal_id": "german_b1_001",
+    "title": "German homework",
+    "category": "learning",
+    "blocking": false,
+    "days": [
+      "monday",
+      "tuesday",
+      "wednesday",
+      "thursday"
+    ],
+    "start_time": "19:00",
+    "end_time": "19:30",
+    "counts_to_goal": true,
+    "confirmation_mode": "ask_confirmation",
+    "source": "planned_schedule"
+  },
+  {
+    "schedule_id": "gym_evening",
+    "goal_id": "fitness_001",
+    "title": "Gym",
+    "category": "health",
+    "days": [
+      "tuesday",
+      "thursday"
+    ],
+    "start_time": "18:00",
+    "end_time": "19:30",
+    "counts_to_goal": true,
+    "confirmation_mode": "ask_confirmation",
+    "source": "planned_schedule"
+  }
+]
