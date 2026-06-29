@@ -3,92 +3,26 @@
 from __future__ import annotations
 
 import argparse
-import json
-import sqlite3
+import sys
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DB_PATH = ROOT_DIR / "data" / "lazy_coach.db"
-PRESETS_PATH = ROOT_DIR / "data" / "user_config" / "manual_presets.json"
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 
-def format_seconds(seconds: int) -> str:
-    hours = seconds // 3600
-    minutes = (seconds % 3600) // 60
-    secs = seconds % 60
-
-    if hours > 0:
-        return f"{hours}h {minutes}m {secs}s"
-    if minutes > 0:
-        return f"{minutes}m {secs}s"
-    return f"{secs}s"
-
-
-def ensure_manual_activity_table(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS manual_activity_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            activity_date TEXT NOT NULL,
-            goal_id TEXT NOT NULL,
-            category TEXT NOT NULL,
-            title TEXT NOT NULL,
-            seconds INTEGER NOT NULL CHECK(seconds >= 0),
-            note TEXT NOT NULL DEFAULT '',
-            source TEXT NOT NULL DEFAULT 'manual',
-            created_at TIMESTAMP DEFAULT (datetime('now', 'localtime'))
-        )
-        """
-    )
-
-    conn.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_manual_activity_logs_date
-        ON manual_activity_logs(activity_date)
-        """
-    )
-
-    conn.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_manual_activity_logs_goal
-        ON manual_activity_logs(goal_id)
-        """
-    )
-
-    conn.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_manual_activity_logs_date_goal
-        ON manual_activity_logs(activity_date, goal_id)
-        """
-    )
-
-    conn.commit()
-
-
-def load_presets() -> list[dict[str, Any]]:
-    if not PRESETS_PATH.exists():
-        return []
-
-    with PRESETS_PATH.open("r", encoding="utf-8") as file:
-        data = json.load(file)
-
-    if not isinstance(data, list):
-        raise ValueError("manual_presets.json must contain a list")
-
-    return [item for item in data if isinstance(item, dict)]
-
-
-def find_preset(preset_id: str) -> dict[str, Any] | None:
-    presets = load_presets()
-
-    for preset in presets:
-        if preset.get("preset_id") == preset_id:
-            return preset
-
-    return None
+from src.services.manual_activity_service import (
+    ManualActivityInput,
+    add_manual_activity,
+    add_manual_activity_from_preset,
+    delete_manual_activity,
+    find_preset,
+    format_seconds,
+    list_manual_activities,
+    load_presets,
+)
 
 
 def print_presets() -> None:
@@ -96,24 +30,17 @@ def print_presets() -> None:
 
     if not presets:
         print("No presets found.")
-        print(f"Expected file: {PRESETS_PATH}")
         return
 
     print("Available manual activity presets:")
     print("-" * 60)
 
     for preset in presets:
-        preset_id = preset.get("preset_id", "[missing preset_id]")
-        goal_id = preset.get("goal_id", "[missing goal_id]")
-        title = preset.get("title", "[missing title]")
-        seconds = int(preset.get("seconds", 0))
-        category = preset.get("category", "[missing category]")
-
-        print(f"{preset_id}")
-        print(f"  goal: {goal_id}")
-        print(f"  title: {title}")
-        print(f"  category: {category}")
-        print(f"  duration: {format_seconds(seconds)}")
+        print(f"{preset.preset_id}")
+        print(f"  goal: {preset.goal_id}")
+        print(f"  title: {preset.title}")
+        print(f"  category: {preset.category}")
+        print(f"  duration: {format_seconds(preset.seconds)}")
         print()
 
     print("Usage examples:")
@@ -125,94 +52,10 @@ def print_presets() -> None:
     print("  python data/add_manual_activity.py --delete 1")
 
 
-def insert_manual_activity(
-    activity_date: str,
-    goal_id: str,
-    category: str,
-    title: str,
-    seconds: int,
-    note: str,
-    source: str = "manual",
-) -> None:
-    if seconds <= 0:
-        raise ValueError("seconds must be greater than 0")
+def print_manual_activities(activity_date: str | None = None) -> None:
+    entries = list_manual_activities(activity_date=activity_date)
 
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        ensure_manual_activity_table(conn)
-
-        conn.execute(
-            """
-            INSERT INTO manual_activity_logs (
-                activity_date,
-                goal_id,
-                category,
-                title,
-                seconds,
-                note,
-                source,
-                created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
-            """,
-            (
-                activity_date,
-                goal_id,
-                category,
-                title,
-                seconds,
-                note,
-                source,
-            ),
-        )
-
-        conn.commit()
-
-
-def list_manual_activities(activity_date: str | None = None) -> None:
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        ensure_manual_activity_table(conn)
-
-        if activity_date:
-            rows = conn.execute(
-                """
-                SELECT
-                    id,
-                    activity_date,
-                    goal_id,
-                    category,
-                    title,
-                    seconds,
-                    note,
-                    source,
-                    created_at
-                FROM manual_activity_logs
-                WHERE activity_date = ?
-                ORDER BY activity_date DESC, id DESC
-                """,
-                (activity_date,),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """
-                SELECT
-                    id,
-                    activity_date,
-                    goal_id,
-                    category,
-                    title,
-                    seconds,
-                    note,
-                    source,
-                    created_at
-                FROM manual_activity_logs
-                ORDER BY activity_date DESC, id DESC
-                LIMIT 50
-                """
-            ).fetchall()
-
-    if not rows:
+    if not entries:
         if activity_date:
             print(f"No manual activities found for {activity_date}.")
         else:
@@ -222,85 +65,21 @@ def list_manual_activities(activity_date: str | None = None) -> None:
     print("Manual activity entries:")
     print("-" * 100)
 
-    for row in rows:
-        note = row["note"] or ""
-
+    for entry in entries:
         print(
-            f"ID: {row['id']} | "
-            f"date: {row['activity_date']} | "
-            f"goal: {row['goal_id']} | "
-            f"category: {row['category']} | "
-            f"duration: {format_seconds(int(row['seconds']))}"
+            f"ID: {entry.id} | "
+            f"date: {entry.activity_date} | "
+            f"goal: {entry.goal_id} | "
+            f"category: {entry.category} | "
+            f"duration: {format_seconds(entry.seconds)}"
         )
-        print(f"  title: {row['title']}")
+        print(f"  title: {entry.title}")
 
-        if note:
-            print(f"  note: {note}")
+        if entry.note:
+            print(f"  note: {entry.note}")
 
-        print(f"  source: {row['source']} | created_at: {row['created_at']}")
+        print(f"  source: {entry.source} | created_at: {entry.created_at}")
         print()
-
-
-def get_manual_activity_by_id(entry_id: int) -> dict[str, Any] | None:
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        ensure_manual_activity_table(conn)
-
-        row = conn.execute(
-            """
-            SELECT
-                id,
-                activity_date,
-                goal_id,
-                category,
-                title,
-                seconds,
-                note,
-                source,
-                created_at
-            FROM manual_activity_logs
-            WHERE id = ?
-            """,
-            (entry_id,),
-        ).fetchone()
-
-    if row is None:
-        return None
-
-    return dict(row)
-
-
-def delete_manual_activity(entry_id: int) -> None:
-    entry = get_manual_activity_by_id(entry_id)
-
-    if entry is None:
-        print(f"Manual activity not found: ID {entry_id}")
-        return
-
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        ensure_manual_activity_table(conn)
-
-        conn.execute(
-            """
-            DELETE FROM manual_activity_logs
-            WHERE id = ?
-            """,
-            (entry_id,),
-        )
-
-        conn.commit()
-
-    print("Manual activity deleted:")
-    print(f"  id: {entry['id']}")
-    print(f"  date: {entry['activity_date']}")
-    print(f"  goal: {entry['goal_id']}")
-    print(f"  title: {entry['title']}")
-    print(f"  category: {entry['category']}")
-    print(f"  duration: {format_seconds(int(entry['seconds']))}")
-
-    if entry.get("note"):
-        print(f"  note: {entry['note']}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -372,11 +151,27 @@ def main() -> None:
     args = parse_args()
 
     if args.delete is not None:
-        delete_manual_activity(args.delete)
+        deleted_entry = delete_manual_activity(args.delete)
+
+        if deleted_entry is None:
+            print(f"Manual activity not found: ID {args.delete}")
+            return
+
+        print("Manual activity deleted:")
+        print(f"  id: {deleted_entry.id}")
+        print(f"  date: {deleted_entry.activity_date}")
+        print(f"  goal: {deleted_entry.goal_id}")
+        print(f"  title: {deleted_entry.title}")
+        print(f"  category: {deleted_entry.category}")
+        print(f"  duration: {format_seconds(deleted_entry.seconds)}")
+
+        if deleted_entry.note:
+            print(f"  note: {deleted_entry.note}")
+
         return
 
     if args.list:
-        list_manual_activities(activity_date=args.date)
+        print_manual_activities(activity_date=args.date)
         return
 
     if not args.preset and not args.goal:
@@ -392,11 +187,11 @@ def main() -> None:
             print_presets()
             return
 
-        goal_id = str(preset["goal_id"])
-        category = str(preset.get("category", "manual"))
-        title = str(preset.get("title", args.preset))
-        seconds = int(preset["seconds"])
-        note = args.note
+        entry = add_manual_activity_from_preset(
+            preset_id=args.preset,
+            activity_date=args.date,
+            note=args.note,
+        )
 
     else:
         if not args.goal:
@@ -408,30 +203,28 @@ def main() -> None:
         if not args.minutes:
             raise ValueError("--minutes is required for custom manual activity")
 
-        goal_id = args.goal
-        category = args.category
-        title = args.title
-        seconds = args.minutes * 60
-        note = args.note
-
-    insert_manual_activity(
-        activity_date=args.date,
-        goal_id=goal_id,
-        category=category,
-        title=title,
-        seconds=seconds,
-        note=note,
-    )
+        entry = add_manual_activity(
+            ManualActivityInput(
+                activity_date=args.date,
+                goal_id=args.goal,
+                category=args.category,
+                title=args.title,
+                seconds=args.minutes * 60,
+                note=args.note,
+                source="manual",
+            )
+        )
 
     print("Manual activity added:")
-    print(f"  date: {args.date}")
-    print(f"  goal: {goal_id}")
-    print(f"  title: {title}")
-    print(f"  category: {category}")
-    print(f"  duration: {format_seconds(seconds)}")
+    print(f"  id: {entry.id}")
+    print(f"  date: {entry.activity_date}")
+    print(f"  goal: {entry.goal_id}")
+    print(f"  title: {entry.title}")
+    print(f"  category: {entry.category}")
+    print(f"  duration: {format_seconds(entry.seconds)}")
 
-    if note:
-        print(f"  note: {note}")
+    if entry.note:
+        print(f"  note: {entry.note}")
 
 
 if __name__ == "__main__":
