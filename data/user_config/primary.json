@@ -3,6 +3,28 @@
   "profile_name": "Primary User",
   "coach_persona": "balanced",
 
+  "panel_status_rules": {
+  "positive": [
+    "productive",
+    "learning",
+    "career",
+    "health"
+  ],
+  "neutral": [
+    "personal",
+    "commute",
+    "manual",
+    "unknown"
+  ],
+  "negative": [
+    "time_wasting",
+    "distracting"
+  ],
+  "idle": [
+    "idle",
+    "ignored"
+  ]
+},
   "process_rules": {
     "productive": [
       "pycharm64.exe",
