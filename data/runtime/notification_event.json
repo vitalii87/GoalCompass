@@ -1,0 +1,10 @@
+{
+  "event_id": "2026-07-03T19:14:02_5b8ef660",
+  "created_at": "2026-07-03T19:14:02",
+  "level": "warning",
+  "icon": "⚠",
+  "title": "time_wasting limit reached",
+  "message": "Денний ліміт на time-wasting майже або вже пробитий.",
+  "popup_expires_after_seconds": 8,
+  "badge_expires_after_seconds": 3600
+}

@@ -26,6 +26,7 @@ from src.monitor.process_monitor import get_foreground_process_info
 from src.notifier.notifier import notify
 from src.outcomes.outcome_engine import OutcomeEngine
 from src.services.current_state_service import write_current_state
+from src.services.notification_event_service import write_notification_event
 from src.signals.signals_engine import SignalsEngine
 from src.storage.db import SQLiteStorage
 from src.tracker.live_counter import LiveCounter
@@ -192,6 +193,8 @@ def build_notification_key(
 
 
 def format_seconds(seconds: int) -> str:
+    seconds = max(int(seconds), 0)
+
     hours = seconds // 3600
     minutes = (seconds % 3600) // 60
     secs = seconds % 60
@@ -235,6 +238,43 @@ def print_live_stats(counter: LiveCounter, current_window_title: str = "") -> No
             log_message(f"Daily total state [{state}] = {format_seconds(total)}")
 
     log_message("=" * 60)
+
+
+def seed_existing_signal_milestones(
+    signals_engine: SignalsEngine,
+    emitted_signal_keys: set[tuple[str, str, str, int]],
+    process_name: str,
+    category: str,
+    activity_state: str,
+    current_session_seconds: int,
+) -> None:
+    """
+    Prevent old/restored session milestones from firing immediately
+    when GoalCompass starts.
+
+    Example:
+        Tracker starts while PyCharm session already has 600s.
+        Without seeding, 60/300/600 signals are emitted immediately.
+        With seeding, they are considered already passed.
+    """
+    signals = signals_engine.generate_for_session(
+        process_name=process_name,
+        category=category,
+        seconds=current_session_seconds,
+        activity_state=activity_state,
+    )
+
+    for signal in signals:
+        threshold_seconds = int(signal.metadata.get("threshold_seconds", 0))
+
+        signal_key = (
+            signal.process_name,
+            signal.category,
+            signal.signal_type,
+            threshold_seconds,
+        )
+
+        emitted_signal_keys.add(signal_key)
 
 
 def process_goal_pipeline(
@@ -359,6 +399,10 @@ def main() -> None:
     emitted_signal_keys: set[tuple[str, str, str, int]] = set()
     last_session_identity: Optional[tuple[str, str, str, str]] = None
 
+    # First real tracked iteration may see a restored/continued session
+    # with already accumulated seconds. Seed passed signal milestones once.
+    is_first_tracked_iteration = True
+
     is_in_ignored_mode = False
     ignored_started_at: Optional[float] = None
     ignored_last_process = ""
@@ -479,18 +523,29 @@ def main() -> None:
                 today_category_seconds=daily_display_seconds,
             )
 
-            process_goal_pipeline(
-                storage=storage,
-                signals_engine=signals_engine,
-                outcome_engine=outcome_engine,
-                goal_alignment_engine=goal_alignment_engine,
-                goals=goals,
-                process_name=process_name,
-                category=category,
-                activity_state=activity_state,
-                current_session_seconds=current_session_seconds,
-                emitted_signal_keys=emitted_signal_keys,
-            )
+            if is_first_tracked_iteration:
+                seed_existing_signal_milestones(
+                    signals_engine=signals_engine,
+                    emitted_signal_keys=emitted_signal_keys,
+                    process_name=process_name,
+                    category=category,
+                    activity_state=activity_state,
+                    current_session_seconds=current_session_seconds,
+                )
+                is_first_tracked_iteration = False
+            else:
+                process_goal_pipeline(
+                    storage=storage,
+                    signals_engine=signals_engine,
+                    outcome_engine=outcome_engine,
+                    goal_alignment_engine=goal_alignment_engine,
+                    goals=goals,
+                    process_name=process_name,
+                    category=category,
+                    activity_state=activity_state,
+                    current_session_seconds=current_session_seconds,
+                    emitted_signal_keys=emitted_signal_keys,
+                )
 
             notify_now = should_notify(
                 rule=rule,
@@ -516,14 +571,20 @@ def main() -> None:
                     f"Daily total [{category}]: "
                     f"{format_seconds(daily_category_total_seconds)}"
                 )
+
                 notify(full_message)
                 log_message(f"NOTIFY -> {full_message}")
-                sent_notification_keys.add(notify_key)
 
-            if not notify_now:
-                if session and session["process_name"] != process_name:
-                    emitted_signal_keys.clear()
-                    last_session_identity = None
+                write_notification_event(
+                    level="warning",
+                    icon="⚠",
+                    title=f"{category} limit reached",
+                    message=message,
+                    popup_expires_after_seconds=8,
+                    badge_expires_after_seconds=3600,
+                )
+
+                sent_notification_keys.add(notify_key)
 
             now = time.time()
             if now - last_print_time >= LIVE_COUNTER_PRINT_INTERVAL_SECONDS:
