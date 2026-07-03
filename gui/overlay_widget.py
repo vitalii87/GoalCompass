@@ -13,10 +13,9 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 
-from src.services.panel_status_service import (
-    format_seconds_clock,
-    get_current_panel_status,
-    today_iso,
+from src.services.current_state_service import (
+    is_current_state_stale,
+    read_current_state,
 )
 
 
@@ -25,7 +24,18 @@ STATUS_COLORS = {
     "neutral": "#f1c40f",   # yellow
     "negative": "#e74c3c",  # red
     "idle": "#95a5a6",      # gray
+    "stale": "#7f8c8d",     # darker gray
+    "error": "#e74c3c",
 }
+
+
+def format_seconds_as_hours_minutes(seconds: int) -> str:
+    safe_seconds = max(int(seconds), 0)
+
+    hours = safe_seconds // 3600
+    minutes = (safe_seconds % 3600) // 60
+
+    return f"{hours:02d}:{minutes:02d}"
 
 
 class GoalCompassOverlay(tk.Tk):
@@ -69,14 +79,14 @@ class GoalCompassOverlay(tk.Tk):
             self.main_frame,
             text="●",
             font=("Segoe UI", 16, "bold"),
-            fg=STATUS_COLORS["idle"],
+            fg=STATUS_COLORS["stale"],
             bg="#1e1e1e",
         )
         self.status_dot.pack(side=tk.LEFT, padx=(18, 4))
 
         self.status_timer_label = tk.Label(
             self.main_frame,
-            text="00:00",
+            text="--:--",
             font=("Segoe UI", 13, "bold"),
             fg="#ffffff",
             bg="#1e1e1e",
@@ -105,7 +115,7 @@ class GoalCompassOverlay(tk.Tk):
 
     def refresh_loop(self) -> None:
         self.refresh_data()
-        self.after(1000, self.refresh_loop)
+        self.after(3000, self.refresh_loop)
 
     def refresh_data(self) -> None:
         self.clock_label.config(
@@ -113,26 +123,37 @@ class GoalCompassOverlay(tk.Tk):
         )
 
         try:
-            current = get_current_panel_status(today_iso())
+            state = read_current_state()
         except Exception:
-            self.status_dot.config(fg=STATUS_COLORS["negative"])
+            self.status_dot.config(fg=STATUS_COLORS["error"])
             self.status_timer_label.config(text="ERR")
             return
 
-        if current is None:
-            self.status_dot.config(fg=STATUS_COLORS["idle"])
-            self.status_timer_label.config(text="00:00")
+        if state is None:
+            self.status_dot.config(fg=STATUS_COLORS["stale"])
+            self.status_timer_label.config(text="--:--")
+            return
+
+        display_seconds = state.today_category_seconds
+
+        if is_current_state_stale(state, stale_after_seconds=10):
+            self.status_dot.config(fg=STATUS_COLORS["stale"])
+            self.status_timer_label.config(text="--:--")
             return
 
         color = STATUS_COLORS.get(
-            current.panel_status,
+            state.panel_status,
             STATUS_COLORS["neutral"],
         )
 
         self.status_dot.config(fg=color)
-        self.status_timer_label.config(
-            text=format_seconds_clock(current.seconds)
-        )
+
+        if state.activity_state == "idle" or state.panel_status == "idle":
+            self.status_timer_label.config(text="--:--")
+        else:
+            self.status_timer_label.config(
+                text=format_seconds_as_hours_minutes(display_seconds)
+            )
 
 
 def main() -> None:

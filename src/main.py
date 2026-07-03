@@ -25,6 +25,7 @@ from src.goals.goal_loader import load_goals
 from src.monitor.process_monitor import get_foreground_process_info
 from src.notifier.notifier import notify
 from src.outcomes.outcome_engine import OutcomeEngine
+from src.services.current_state_service import write_current_state
 from src.signals.signals_engine import SignalsEngine
 from src.storage.db import SQLiteStorage
 from src.tracker.live_counter import LiveCounter
@@ -84,6 +85,62 @@ def safe_classify(process_name: str, window_title: str) -> str:
     return category
 
 
+def is_goalcompass_overlay_window(
+    process_name: str,
+    window_title: str,
+) -> bool:
+    """
+    Prevent the always-on-top overlay itself from becoming tracked activity.
+
+    When overlay_widget.py is focused, Windows reports something like:
+        python3.10.exe | GoalCompass
+
+    We do not want this to pollute activity_logs or current_state.
+    """
+    normalized_process = process_name.lower().strip()
+    normalized_title = window_title.lower().strip()
+
+    python_processes = {
+        "python.exe",
+        "pythonw.exe",
+        "python3.exe",
+        "python3.10.exe",
+        "python3.11.exe",
+        "python3.12.exe",
+    }
+
+    if normalized_process not in python_processes:
+        return False
+
+    return normalized_title == "goalcompass"
+
+
+def get_daily_idle_seconds(counter: LiveCounter) -> int:
+    state_totals = counter.get_daily_totals_by_state()
+    return int(state_totals.get("idle", 0))
+
+
+def get_daily_display_seconds(
+    counter: LiveCounter,
+    category: str,
+    activity_state: str,
+) -> int:
+    """
+    Value shown in the mini overlay.
+
+    Active:
+        show today's total for the current category.
+
+    Idle:
+        do not count/display productive or wasted time.
+        Idle is a pause state for the mini overlay.
+    """
+    if activity_state == "idle":
+        return 0
+
+    return int(counter.get_daily_total_by_category(category))
+
+
 def should_notify(
     rule: Dict[str, Any],
     current_session_seconds: int,
@@ -102,6 +159,36 @@ def should_notify(
         return daily_category_total_seconds >= threshold
 
     return False
+
+
+def build_notification_key(
+    rule: Dict[str, Any],
+    process_name: str,
+    category: str,
+) -> tuple[str, str, str]:
+    """
+    Build notification de-duplication key.
+
+    daily_accumulate:
+        notify once per date + category + mode.
+
+    instant / other:
+        notify once per process + category + mode.
+    """
+    mode = str(rule.get("mode", "none"))
+
+    if mode == "daily_accumulate":
+        return (
+            date.today().isoformat(),
+            category,
+            mode,
+        )
+
+    return (
+        process_name,
+        category,
+        mode,
+    )
 
 
 def format_seconds(seconds: int) -> str:
@@ -261,7 +348,13 @@ def main() -> None:
     log_message("lazy_coach started")
 
     last_print_time = time.time()
-    last_notified_key: Optional[tuple[str, str]] = None
+
+    # Notification de-duplication memory for the current tracker runtime.
+    #
+    # Examples:
+    #   daily_accumulate -> ("2026-07-03", "time_wasting", "daily_accumulate")
+    #   instant          -> ("worldoftanks.exe", "time_wasting", "instant")
+    sent_notification_keys: set[tuple[str, str, str]] = set()
 
     emitted_signal_keys: set[tuple[str, str, str, int]] = set()
     last_session_identity: Optional[tuple[str, str, str, str]] = None
@@ -277,6 +370,13 @@ def main() -> None:
             process_name = process_info["process_name"]
             window_title = process_info["window_title"]
 
+            if is_goalcompass_overlay_window(
+                process_name=process_name,
+                window_title=window_title,
+            ):
+                time.sleep(CHECK_INTERVAL_SECONDS)
+                continue
+
             if process_name in IGNORED_PROCESSES:
                 if not is_in_ignored_mode:
                     is_in_ignored_mode = True
@@ -288,7 +388,19 @@ def main() -> None:
 
                 ignored_last_process = process_name
                 ignored_last_window = window_title
-                last_notified_key = None
+
+                ignored_duration = 0
+                if ignored_started_at is not None:
+                    ignored_duration = int(time.time() - ignored_started_at)
+
+                write_current_state(
+                    process_name=process_name,
+                    window_title=window_title,
+                    category=IGNORED_CATEGORY,
+                    activity_state="idle",
+                    session_seconds=ignored_duration,
+                    today_category_seconds=0,
+                )
 
                 time.sleep(CHECK_INTERVAL_SECONDS)
                 continue
@@ -352,6 +464,20 @@ def main() -> None:
                 current_session_seconds = int(session["seconds"])
 
             daily_category_total_seconds = counter.get_daily_total_by_category(category)
+            daily_display_seconds = get_daily_display_seconds(
+                counter=counter,
+                category=category,
+                activity_state=activity_state,
+            )
+
+            write_current_state(
+                process_name=process_name,
+                window_title=window_title,
+                category=category,
+                activity_state=activity_state,
+                session_seconds=current_session_seconds,
+                today_category_seconds=daily_display_seconds,
+            )
 
             process_goal_pipeline(
                 storage=storage,
@@ -372,9 +498,13 @@ def main() -> None:
                 daily_category_total_seconds=daily_category_total_seconds,
             )
 
-            notify_key = (process_name, str(rule.get("mode", "none")))
+            notify_key = build_notification_key(
+                rule=rule,
+                process_name=process_name,
+                category=category,
+            )
 
-            if notify_now and last_notified_key != notify_key:
+            if notify_now and notify_key not in sent_notification_keys:
                 message = rule.get("message", "Повернись до роботи.")
                 full_message = (
                     f"{message}\n"
@@ -388,15 +518,12 @@ def main() -> None:
                 )
                 notify(full_message)
                 log_message(f"NOTIFY -> {full_message}")
-                last_notified_key = notify_key
+                sent_notification_keys.add(notify_key)
 
             if not notify_now:
                 if session and session["process_name"] != process_name:
-                    last_notified_key = None
                     emitted_signal_keys.clear()
                     last_session_identity = None
-                elif rule.get("mode") == "none":
-                    last_notified_key = None
 
             now = time.time()
             if now - last_print_time >= LIVE_COUNTER_PRINT_INTERVAL_SECONDS:
