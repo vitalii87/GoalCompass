@@ -2,694 +2,1495 @@
 
 from __future__ import annotations
 
+import json
+import sqlite3
 import sys
 import tkinter as tk
-from datetime import date
 from pathlib import Path
 from tkinter import messagebox, ttk
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
+CURRENT_STATE_PATH = ROOT_DIR / "data" / "runtime" / "current_state.json"
+DB_PATH = ROOT_DIR / "data" / "lazy_coach.db"
+
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-
-from src.services.dashboard_service import (
-    DashboardView,
-    build_dashboard_view,
+from src.services.activity_rules_service import (  # noqa: E402
+    add_activity_rule,
+    delete_activity_rule,
+    list_rules,
+    normalize_rule_value,
+    update_activity_rule,
 )
-from src.services.goal_progress_service import (
-    build_goal_progress_day_view,
-    format_seconds,
-)
-from src.services.manual_activity_service import (
-    add_manual_activity_from_preset,
-    delete_manual_activity,
-    format_seconds as format_manual_seconds,
-    list_manual_activities,
-    load_presets,
-)
-from src.services.schedule_service import (
-    build_schedule_day_view,
-    format_minutes_as_duration,
+from src.services.goal_profile_service import load_goal_profile  # noqa: E402
+from src.services.limit_rules_service import (  # noqa: E402
+    add_limit_rule,
+    delete_limit_rule,
+    list_limit_rules,
+    pause_limit_rule,
+    replace_limit_rule,
+    seed_starter_limits_if_empty,
 )
 
 
-DASHBOARD_AUTO_REFRESH_SECONDS = 15
+ACTIVITY_RULE_TYPES = [
+    "process",
+    "title_contains",
+    "domain",
+    "url_contains",
+]
+
+ACTIVITY_CATEGORIES = [
+    "productive",
+    "personal",
+    "neutral",
+    "distracting",
+    "time_wasting",
+    "unknown",
+    "ignored",
+]
+
+LIMIT_TARGET_TYPES = [
+    "category",
+    "process",
+    "title_contains",
+    "goal",
+]
+
+LIMIT_PERIODS = [
+    "daily",
+    "weekly",
+]
+
+LIMIT_SEVERITIES = [
+    "badge",
+    "warning",
+    "strict",
+]
 
 
-class GoalCompassControlPanel(tk.Tk):
-    def __init__(self) -> None:
-        super().__init__()
+def format_seconds(seconds: int | float | None) -> str:
+    total = int(seconds or 0)
 
-        self.title("GoalCompass Control Panel")
-        self.geometry("1000x700")
-        self.minsize(900, 600)
+    hours = total // 3600
+    minutes = (total % 3600) // 60
+    secs = total % 60
 
-        self.selected_date_var = tk.StringVar(value=date.today().isoformat())
-        self.status_var = tk.StringVar(value="Ready")
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m {secs}s"
+    return f"{secs}s"
 
-        self._build_layout()
-        self.refresh_all()
-        self.dashboard_auto_refresh_loop()
 
-    def _build_layout(self) -> None:
-        top_bar = ttk.Frame(self)
-        top_bar.pack(fill=tk.X, padx=10, pady=10)
+def read_current_state() -> dict:
+    if not CURRENT_STATE_PATH.exists():
+        return {}
 
-        ttk.Label(top_bar, text="Date:").pack(side=tk.LEFT)
+    try:
+        raw = CURRENT_STATE_PATH.read_text(encoding="utf-8")
+        data = json.loads(raw)
 
-        date_entry = ttk.Entry(
-            top_bar,
-            textvariable=self.selected_date_var,
-            width=14,
+        if isinstance(data, dict):
+            return data
+
+    except Exception:
+        return {}
+
+    return {}
+
+
+class ActivityRuleDialog(tk.Toplevel):
+    def __init__(
+        self,
+        parent: tk.Widget,
+        title: str,
+        initial_rule: dict | None = None,
+    ) -> None:
+        super().__init__(parent)
+
+        self.result: dict | None = None
+        self.initial_rule = initial_rule or {}
+
+        self.title(title)
+        self.geometry("620x360")
+        self.minsize(560, 340)
+        self.resizable(True, True)
+        self.transient(parent.winfo_toplevel())
+        self.grab_set()
+
+        self.rule_type_var = tk.StringVar(
+            value=str(self.initial_rule.get("type", "title_contains"))
         )
-        date_entry.pack(side=tk.LEFT, padx=(5, 10))
+        self.value_var = tk.StringVar(
+            value=str(self.initial_rule.get("value", ""))
+        )
+        self.category_var = tk.StringVar(
+            value=str(self.initial_rule.get("category", "neutral"))
+        )
+        self.reason_var = tk.StringVar(
+            value=str(self.initial_rule.get("reason", ""))
+        )
+        self.enabled_var = tk.BooleanVar(
+            value=bool(self.initial_rule.get("enabled", True))
+        )
 
-        refresh_button = ttk.Button(
-            top_bar,
+        self.build_ui()
+        self.value_entry.focus_set()
+
+        self.bind("<Return>", lambda _event: self.save())
+        self.bind("<Escape>", lambda _event: self.cancel())
+
+    def build_ui(self) -> None:
+        root = ttk.Frame(self, padding=14)
+        root.pack(fill="both", expand=True)
+
+        root.columnconfigure(1, weight=1)
+
+        ttk.Label(root, text="Rule type:").grid(
+            row=0,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=(0, 8),
+        )
+
+        ttk.Combobox(
+            root,
+            textvariable=self.rule_type_var,
+            values=ACTIVITY_RULE_TYPES,
+            state="readonly",
+        ).grid(row=0, column=1, sticky="ew", pady=(0, 8))
+
+        ttk.Label(root, text="Value:").grid(
+            row=1,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=(0, 8),
+        )
+
+        self.value_entry = ttk.Entry(root, textvariable=self.value_var)
+        self.value_entry.grid(row=1, column=1, sticky="ew", pady=(0, 8))
+
+        ttk.Label(root, text="Category:").grid(
+            row=2,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=(0, 8),
+        )
+
+        ttk.Combobox(
+            root,
+            textvariable=self.category_var,
+            values=ACTIVITY_CATEGORIES,
+            state="readonly",
+        ).grid(row=2, column=1, sticky="ew", pady=(0, 8))
+
+        ttk.Label(root, text="Reason / note:").grid(
+            row=3,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=(0, 8),
+        )
+
+        ttk.Entry(root, textvariable=self.reason_var).grid(
+            row=3,
+            column=1,
+            sticky="ew",
+            pady=(0, 8),
+        )
+
+        ttk.Checkbutton(
+            root,
+            text="Enabled",
+            variable=self.enabled_var,
+        ).grid(row=4, column=1, sticky="w", pady=(0, 12))
+
+        ttk.Label(
+            root,
+            text="Manual rules override built-in rules.",
+            foreground="gray",
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(0, 12))
+
+        buttons = ttk.Frame(root)
+        buttons.grid(row=6, column=0, columnspan=2, sticky="ew")
+
+        ttk.Button(buttons, text="Save", command=self.save).pack(side="right")
+        ttk.Button(buttons, text="Cancel", command=self.cancel).pack(
+            side="right",
+            padx=(0, 8),
+        )
+
+    def save(self) -> None:
+        rule_type = self.rule_type_var.get().strip()
+        raw_value = self.value_var.get().strip()
+        category = self.category_var.get().strip()
+        reason = self.reason_var.get().strip()
+        enabled = bool(self.enabled_var.get())
+
+        normalized_value = normalize_rule_value(rule_type, raw_value)
+
+        if not normalized_value:
+            messagebox.showerror(
+                "Missing value",
+                "Rule value is required.",
+                parent=self,
+            )
+            return
+
+        self.result = {
+            "type": rule_type,
+            "value": normalized_value,
+            "category": category,
+            "reason": reason,
+            "enabled": enabled,
+        }
+
+        self.destroy()
+
+    def cancel(self) -> None:
+        self.result = None
+        self.destroy()
+
+
+class LimitRuleDialog(tk.Toplevel):
+    def __init__(
+        self,
+        parent: tk.Widget,
+        title: str,
+        initial_rule: dict | None = None,
+    ) -> None:
+        super().__init__(parent)
+
+        self.result: dict | None = None
+        self.initial_rule = initial_rule or {}
+
+        self.title(title)
+        self.geometry("640x420")
+        self.minsize(580, 380)
+        self.resizable(True, True)
+        self.transient(parent.winfo_toplevel())
+        self.grab_set()
+
+        self.target_type_var = tk.StringVar(
+            value=str(self.initial_rule.get("target_type", "category"))
+        )
+        self.target_value_var = tk.StringVar(
+            value=str(self.initial_rule.get("target_value", "time_wasting"))
+        )
+        self.period_var = tk.StringVar(
+            value=str(self.initial_rule.get("period", "daily"))
+        )
+        self.limit_minutes_var = tk.StringVar(
+            value=str(self.initial_rule.get("limit_minutes", "60"))
+        )
+        self.severity_var = tk.StringVar(
+            value=str(self.initial_rule.get("severity", "warning"))
+        )
+        self.goal_id_var = tk.StringVar(
+            value=str(self.initial_rule.get("goal_id", ""))
+        )
+        self.reason_var = tk.StringVar(
+            value=str(self.initial_rule.get("reason", ""))
+        )
+
+        self.build_ui()
+        self.target_value_entry.focus_set()
+
+        self.bind("<Return>", lambda _event: self.save())
+        self.bind("<Escape>", lambda _event: self.cancel())
+
+    def build_ui(self) -> None:
+        root = ttk.Frame(self, padding=14)
+        root.pack(fill="both", expand=True)
+
+        root.columnconfigure(1, weight=1)
+
+        ttk.Label(root, text="Target type:").grid(
+            row=0,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=(0, 8),
+        )
+
+        ttk.Combobox(
+            root,
+            textvariable=self.target_type_var,
+            values=LIMIT_TARGET_TYPES,
+            state="readonly",
+        ).grid(row=0, column=1, sticky="ew", pady=(0, 8))
+
+        ttk.Label(root, text="Target value:").grid(
+            row=1,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=(0, 8),
+        )
+
+        self.target_value_entry = ttk.Entry(
+            root,
+            textvariable=self.target_value_var,
+        )
+        self.target_value_entry.grid(row=1, column=1, sticky="ew", pady=(0, 8))
+
+        ttk.Label(
+            root,
+            text=(
+                "Examples: category=time_wasting, process=worldoftanks.exe, "
+                "title_contains=WoT Client"
+            ),
+            foreground="gray",
+            wraplength=520,
+        ).grid(row=2, column=1, sticky="w", pady=(0, 12))
+
+        ttk.Label(root, text="Period:").grid(
+            row=3,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=(0, 8),
+        )
+
+        ttk.Combobox(
+            root,
+            textvariable=self.period_var,
+            values=LIMIT_PERIODS,
+            state="readonly",
+        ).grid(row=3, column=1, sticky="ew", pady=(0, 8))
+
+        ttk.Label(root, text="Limit minutes:").grid(
+            row=4,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=(0, 8),
+        )
+
+        ttk.Entry(root, textvariable=self.limit_minutes_var).grid(
+            row=4,
+            column=1,
+            sticky="ew",
+            pady=(0, 8),
+        )
+
+        ttk.Label(root, text="Severity:").grid(
+            row=5,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=(0, 8),
+        )
+
+        ttk.Combobox(
+            root,
+            textvariable=self.severity_var,
+            values=LIMIT_SEVERITIES,
+            state="readonly",
+        ).grid(row=5, column=1, sticky="ew", pady=(0, 8))
+
+        ttk.Label(root, text="Goal ID optional:").grid(
+            row=6,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=(0, 8),
+        )
+
+        ttk.Entry(root, textvariable=self.goal_id_var).grid(
+            row=6,
+            column=1,
+            sticky="ew",
+            pady=(0, 8),
+        )
+
+        ttk.Label(root, text="Reason / note:").grid(
+            row=7,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=(0, 8),
+        )
+
+        ttk.Entry(root, textvariable=self.reason_var).grid(
+            row=7,
+            column=1,
+            sticky="ew",
+            pady=(0, 8),
+        )
+
+        ttk.Label(
+            root,
+            text=(
+                "Editing a limit creates a new version and closes the old one. "
+                "History is preserved."
+            ),
+            foreground="gray",
+            wraplength=520,
+        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(0, 12))
+
+        buttons = ttk.Frame(root)
+        buttons.grid(row=9, column=0, columnspan=2, sticky="ew")
+
+        ttk.Button(buttons, text="Save", command=self.save).pack(side="right")
+        ttk.Button(buttons, text="Cancel", command=self.cancel).pack(
+            side="right",
+            padx=(0, 8),
+        )
+
+    def save(self) -> None:
+        target_type = self.target_type_var.get().strip()
+        target_value = self.target_value_var.get().strip()
+        period = self.period_var.get().strip()
+        severity = self.severity_var.get().strip()
+        goal_id = self.goal_id_var.get().strip()
+        reason = self.reason_var.get().strip()
+
+        try:
+            limit_minutes = int(self.limit_minutes_var.get().strip())
+        except Exception:
+            messagebox.showerror(
+                "Invalid minutes",
+                "Limit minutes must be an integer.",
+                parent=self,
+            )
+            return
+
+        if limit_minutes <= 0:
+            messagebox.showerror(
+                "Invalid minutes",
+                "Limit minutes must be greater than zero.",
+                parent=self,
+            )
+            return
+
+        if not target_value:
+            messagebox.showerror(
+                "Missing target",
+                "Target value is required.",
+                parent=self,
+            )
+            return
+
+        self.result = {
+            "target_type": target_type,
+            "target_value": target_value,
+            "period": period,
+            "limit_minutes": limit_minutes,
+            "severity": severity,
+            "goal_id": goal_id,
+            "reason": reason,
+        }
+
+        self.destroy()
+
+    def cancel(self) -> None:
+        self.result = None
+        self.destroy()
+
+
+class DashboardTab(ttk.Frame):
+    def __init__(self, parent: tk.Widget) -> None:
+        super().__init__(parent, padding=14)
+
+        self.current_var = tk.StringVar(value="Current: unknown")
+        self.totals_var = tk.StringVar(value="No data yet.")
+
+        self.build_ui()
+        self.refresh()
+
+    def build_ui(self) -> None:
+        ttk.Label(
+            self,
+            text="Dashboard",
+            font=("Segoe UI", 16, "bold"),
+        ).pack(anchor="w", pady=(0, 10))
+
+        ttk.Label(
+            self,
+            textvariable=self.current_var,
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w", pady=(0, 12))
+
+        ttk.Label(
+            self,
+            textvariable=self.totals_var,
+            justify="left",
+        ).pack(anchor="w")
+
+        ttk.Button(
+            self,
             text="Refresh",
-            command=self.refresh_all,
+            command=self.refresh,
+        ).pack(anchor="w", pady=(16, 0))
+
+    def refresh(self) -> None:
+        state = read_current_state()
+
+        process_name = state.get("process_name") or state.get("process") or ""
+        category = state.get("category", "")
+        activity_state = state.get("activity_state") or state.get("state") or ""
+        window_title = state.get("window_title") or state.get("title") or ""
+
+        self.current_var.set(
+            f"Current: {process_name} | {category} | {activity_state}\n{window_title}"
         )
-        refresh_button.pack(side=tk.LEFT)
 
-        today_button = ttk.Button(
-            top_bar,
-            text="Today",
-            command=self.set_today,
-        )
-        today_button.pack(side=tk.LEFT, padx=(5, 0))
+        totals = self.load_today_totals()
 
-        self.auto_refresh_label = ttk.Label(
-            top_bar,
-            text=f"Dashboard auto-refresh: {DASHBOARD_AUTO_REFRESH_SECONDS}s",
-        )
-        self.auto_refresh_label.pack(side=tk.LEFT, padx=(20, 0))
+        if not totals:
+            self.totals_var.set("No totals found yet.")
+            return
 
-        self.notebook = ttk.Notebook(self)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 5))
+        lines = ["Today totals:"]
+        for category_name, seconds in totals:
+            lines.append(f"  {category_name}: {format_seconds(seconds)}")
 
-        self.dashboard_tab = ttk.Frame(self.notebook)
-        self.goals_tab = ttk.Frame(self.notebook)
-        self.manual_tab = ttk.Frame(self.notebook)
-        self.schedule_tab = ttk.Frame(self.notebook)
+        self.totals_var.set("\n".join(lines))
 
-        self.notebook.add(self.dashboard_tab, text="Dashboard")
-        self.notebook.add(self.goals_tab, text="Goals")
-        self.notebook.add(self.manual_tab, text="Manual")
-        self.notebook.add(self.schedule_tab, text="Schedule")
+    def load_today_totals(self) -> list[tuple[str, int]]:
+        if not DB_PATH.exists():
+            return []
 
-        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+        try:
+            with sqlite3.connect(str(DB_PATH)) as conn:
+                rows = conn.execute(
+                    """
+                    SELECT category, COALESCE(SUM(seconds), 0)
+                    FROM activity_logs
+                    WHERE date = DATE('now', 'localtime')
+                    GROUP BY category
+                    ORDER BY SUM(seconds) DESC
+                    """
+                ).fetchall()
 
-        self.status_bar = ttk.Label(
+            return [(str(row[0]), int(row[1] or 0)) for row in rows]
+
+        except Exception:
+            return []
+
+
+class ActivityRulesTab(ttk.Frame):
+    def __init__(self, parent: tk.Widget) -> None:
+        super().__init__(parent, padding=14)
+
+        self.status_var = tk.StringVar(value="Ready.")
+
+        self.build_ui()
+        self.refresh_rules()
+
+    def build_ui(self) -> None:
+        ttk.Label(
+            self,
+            text="Activity Rules",
+            font=("Segoe UI", 16, "bold"),
+        ).pack(anchor="w", pady=(0, 8))
+
+        ttk.Label(
+            self,
+            text="Built-in rules are visible and read-only. Manual rules override them.",
+            wraplength=980,
+        ).pack(anchor="w", pady=(0, 12))
+
+        toolbar = ttk.Frame(self)
+        toolbar.pack(fill="x", pady=(0, 10))
+
+        ttk.Button(
+            toolbar,
+            text="+ Add rule",
+            command=self.add_rule_dialog,
+        ).pack(side="left")
+
+        ttk.Button(
+            toolbar,
+            text="+ Use current app",
+            command=self.add_rule_from_current_app,
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Button(
+            toolbar,
+            text="+ Use current title",
+            command=self.add_rule_from_current_title,
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Button(
+            toolbar,
+            text="Edit selected",
+            command=self.edit_selected_rule,
+        ).pack(side="left", padx=(16, 0))
+
+        ttk.Button(
+            toolbar,
+            text="Delete selected",
+            command=self.delete_selected_rule,
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Button(
+            toolbar,
+            text="Refresh",
+            command=self.refresh_rules,
+        ).pack(side="right")
+
+        self.build_rules_table()
+
+        ttk.Label(
             self,
             textvariable=self.status_var,
-            anchor=tk.W,
-        )
-        self.status_bar.pack(fill=tk.X, padx=10, pady=(0, 8))
+            foreground="gray",
+        ).pack(anchor="w", pady=(8, 0))
 
-        self._build_dashboard_tab()
-        self._build_goals_tab()
-        self._build_manual_tab()
-        self._build_schedule_tab()
-
-    def _build_dashboard_tab(self) -> None:
-        self.dashboard_text = tk.Text(
-            self.dashboard_tab,
-            wrap=tk.WORD,
-            height=20,
-        )
-        self.dashboard_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-    def _build_goals_tab(self) -> None:
-        self.goals_text = tk.Text(
-            self.goals_tab,
-            wrap=tk.WORD,
-            height=20,
-        )
-        self.goals_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-    def _build_manual_tab(self) -> None:
-        presets_frame = ttk.LabelFrame(
-            self.manual_tab,
-            text="Quick add presets",
-        )
-        presets_frame.pack(fill=tk.X, padx=10, pady=10)
-
-        self.presets_buttons_frame = ttk.Frame(presets_frame)
-        self.presets_buttons_frame.pack(fill=tk.X, padx=10, pady=10)
-
-        entries_frame = ttk.LabelFrame(
-            self.manual_tab,
-            text="Manual entries for selected date",
-        )
-        entries_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+    def build_rules_table(self) -> None:
+        table_frame = ttk.LabelFrame(self, text="Current rules", padding=8)
+        table_frame.pack(fill="both", expand=True)
 
         columns = (
-            "id",
-            "date",
-            "goal",
-            "title",
-            "duration",
             "source",
+            "enabled",
+            "type",
+            "value",
+            "category",
+            "reason",
         )
 
-        self.manual_tree = ttk.Treeview(
-            entries_frame,
+        self.rules_tree = ttk.Treeview(
+            table_frame,
             columns=columns,
             show="headings",
-            height=12,
+            height=18,
         )
 
-        self.manual_tree.heading("id", text="ID")
-        self.manual_tree.heading("date", text="Date")
-        self.manual_tree.heading("goal", text="Goal")
-        self.manual_tree.heading("title", text="Title")
-        self.manual_tree.heading("duration", text="Duration")
-        self.manual_tree.heading("source", text="Source")
+        for column, title in [
+            ("source", "Source"),
+            ("enabled", "On"),
+            ("type", "Type"),
+            ("value", "Value"),
+            ("category", "Category"),
+            ("reason", "Reason"),
+        ]:
+            self.rules_tree.heading(column, text=title)
 
-        self.manual_tree.column("id", width=60, anchor=tk.CENTER)
-        self.manual_tree.column("date", width=110, anchor=tk.CENTER)
-        self.manual_tree.column("goal", width=180)
-        self.manual_tree.column("title", width=260)
-        self.manual_tree.column("duration", width=100, anchor=tk.CENTER)
-        self.manual_tree.column("source", width=130, anchor=tk.CENTER)
+        self.rules_tree.column("source", width=90, anchor="w")
+        self.rules_tree.column("enabled", width=48, anchor="center", stretch=False)
+        self.rules_tree.column("type", width=140, anchor="w")
+        self.rules_tree.column("value", width=280, anchor="w")
+        self.rules_tree.column("category", width=140, anchor="w")
+        self.rules_tree.column("reason", width=420, anchor="w")
 
-        self.manual_tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        manual_actions = ttk.Frame(entries_frame)
-        manual_actions.pack(fill=tk.X, padx=10, pady=(0, 10))
-
-        delete_button = ttk.Button(
-            manual_actions,
-            text="Delete selected",
-            command=self.delete_selected_manual_entry,
-        )
-        delete_button.pack(side=tk.LEFT)
-
-    def _build_schedule_tab(self) -> None:
-        self.schedule_text = tk.Text(
-            self.schedule_tab,
-            wrap=tk.WORD,
-            height=20,
-        )
-        self.schedule_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-    def get_selected_date(self) -> str:
-        return self.selected_date_var.get().strip()
-
-    def set_today(self) -> None:
-        self.selected_date_var.set(date.today().isoformat())
-        self.refresh_all()
-
-    def get_active_tab_text(self) -> str:
-        selected_tab_id = self.notebook.select()
-
-        if not selected_tab_id:
-            return ""
-
-        return str(self.notebook.tab(selected_tab_id, "text"))
-
-    def is_dashboard_active(self) -> bool:
-        return self.get_active_tab_text() == "Dashboard"
-
-    def is_window_minimized(self) -> bool:
-        return self.state() == "iconic"
-
-    def on_tab_changed(self, _event: tk.Event) -> None:
-        if self.is_dashboard_active() and not self.is_window_minimized():
-            self.refresh_dashboard()
-
-    def dashboard_auto_refresh_loop(self) -> None:
-        if self.is_dashboard_active() and not self.is_window_minimized():
-            self.refresh_dashboard(auto=True)
-
-        self.after(
-            DASHBOARD_AUTO_REFRESH_SECONDS * 1000,
-            self.dashboard_auto_refresh_loop,
+        y_scrollbar = ttk.Scrollbar(
+            table_frame,
+            orient="vertical",
+            command=self.rules_tree.yview,
         )
 
-    def refresh_all(self) -> None:
-        self.refresh_dashboard()
-        self.refresh_goals()
-        self.refresh_manual()
-        self.refresh_schedule()
-        self.refresh_preset_buttons()
+        x_scrollbar = ttk.Scrollbar(
+            table_frame,
+            orient="horizontal",
+            command=self.rules_tree.xview,
+        )
 
-    def refresh_dashboard(self, auto: bool = False) -> None:
-        activity_date = self.get_selected_date()
+        self.rules_tree.configure(
+            yscrollcommand=y_scrollbar.set,
+            xscrollcommand=x_scrollbar.set,
+        )
+
+        self.rules_tree.grid(row=0, column=0, sticky="nsew")
+        y_scrollbar.grid(row=0, column=1, sticky="ns")
+        x_scrollbar.grid(row=1, column=0, sticky="ew")
+
+        table_frame.rowconfigure(0, weight=1)
+        table_frame.columnconfigure(0, weight=1)
+
+        self.rules_tree.bind("<Double-1>", lambda _event: self.edit_selected_rule())
+
+    def get_current_process_and_title(self) -> tuple[str, str]:
+        state = read_current_state()
+
+        process_name = (
+            state.get("process_name")
+            or state.get("process")
+            or state.get("current_process")
+            or ""
+        )
+
+        window_title = (
+            state.get("window_title")
+            or state.get("title")
+            or state.get("current_window_title")
+            or ""
+        )
+
+        return str(process_name).strip(), str(window_title).strip()
+
+    def get_selected_rule_id(self) -> str | None:
+        selected = self.rules_tree.selection()
+        return str(selected[0]) if selected else None
+
+    def refresh_rules(self) -> None:
+        for row in self.rules_tree.get_children():
+            self.rules_tree.delete(row)
 
         try:
-            view = build_dashboard_view(activity_date)
+            rules = list_rules(include_builtin=True)
         except Exception as error:
-            self.dashboard_text.delete("1.0", tk.END)
-            self.dashboard_text.insert(
-                tk.END,
-                f"Error loading dashboard:\n{error}",
-            )
-            self.status_var.set("Dashboard refresh failed")
+            messagebox.showerror("Load failed", str(error), parent=self)
+            self.status_var.set("Failed to load rules.")
             return
 
-        self.render_dashboard(view)
+        for rule in rules:
+            rule_id = str(rule.get("id", ""))
 
-        if auto:
-            self.status_var.set(
-                f"Dashboard auto-refreshed for {view.activity_date}"
-            )
-        else:
-            self.status_var.set(
-                f"Dashboard refreshed for {view.activity_date}"
-            )
+            if not rule_id:
+                continue
 
-    def render_dashboard(self, view: DashboardView) -> None:
-        self.dashboard_text.delete("1.0", tk.END)
-
-        self.dashboard_text.insert(
-            tk.END,
-            f"GOALCOMPASS DASHBOARD | {view.activity_date}\n",
-        )
-        self.dashboard_text.insert(
-            tk.END,
-            f"Week: {view.week_start_date} → {view.week_end_date}\n",
-        )
-        self.dashboard_text.insert(tk.END, "=" * 70 + "\n\n")
-
-        self.dashboard_text.insert(tk.END, "CURRENT\n")
-        self.dashboard_text.insert(tk.END, "-" * 70 + "\n")
-
-        if view.current_state is None:
-            self.dashboard_text.insert(
-                tk.END,
-                "No current state found. Tracker may not be running.\n",
-            )
-        else:
-            state = view.current_state
-            live_state = "STALE" if view.current_state_stale else "LIVE"
-
-            self.dashboard_text.insert(tk.END, f"state:    {live_state}\n")
-            self.dashboard_text.insert(tk.END, f"status:   {state.panel_status}\n")
-            self.dashboard_text.insert(tk.END, f"category: {state.category}\n")
-            self.dashboard_text.insert(
-                tk.END,
-                f"activity: {state.activity_state}\n",
-            )
-            self.dashboard_text.insert(tk.END, f"process:  {state.process_name}\n")
-            self.dashboard_text.insert(
-                tk.END,
-                f"title:    {state.window_title or '[empty]'}\n",
-            )
-            self.dashboard_text.insert(
-                tk.END,
-                f"session:  {format_seconds(state.session_seconds)}\n",
-            )
-            self.dashboard_text.insert(
-                tk.END,
-                f"today category: "
-                f"{format_seconds(state.today_category_seconds)}\n",
-            )
-            self.dashboard_text.insert(tk.END, f"updated:  {state.updated_at}\n")
-
-        self.dashboard_text.insert(tk.END, "\nTODAY TOTALS\n")
-        self.dashboard_text.insert(tk.END, "-" * 70 + "\n")
-
-        totals = view.panel_totals_today
-
-        self.dashboard_text.insert(
-            tk.END,
-            f"positive: {format_seconds(totals.positive_seconds)}\n",
-        )
-        self.dashboard_text.insert(
-            tk.END,
-            f"neutral:  {format_seconds(totals.neutral_seconds)}\n",
-        )
-        self.dashboard_text.insert(
-            tk.END,
-            f"negative: {format_seconds(totals.negative_seconds)}\n",
-        )
-        self.dashboard_text.insert(
-            tk.END,
-            f"idle:     {format_seconds(totals.idle_seconds)}\n",
-        )
-        self.dashboard_text.insert(
-            tk.END,
-            f"tracked:  {format_seconds(totals.tracked_seconds)}\n",
-        )
-
-        self.dashboard_text.insert(tk.END, "\nGOALS\n")
-        self.dashboard_text.insert(tk.END, "-" * 70 + "\n")
-
-        if not view.goals:
-            self.dashboard_text.insert(tk.END, "No goals found.\n")
-        else:
-            for goal in view.goals:
-                self.dashboard_text.insert(tk.END, f"{goal.title}\n")
-                self.dashboard_text.insert(tk.END, f"  id:     {goal.goal_id}\n")
-                self.dashboard_text.insert(tk.END, f"  type:   {goal.goal_type}\n")
-                self.dashboard_text.insert(
-                    tk.END,
-                    f"  today:  {format_seconds(goal.today_seconds)}\n",
-                )
-                self.dashboard_text.insert(
-                    tk.END,
-                    f"  week:   {format_seconds(goal.week_seconds)}\n",
-                )
-
-                if goal.target_seconds > 0:
-                    self.dashboard_text.insert(
-                        tk.END,
-                        f"  target: {format_seconds(goal.target_seconds)}\n",
-                    )
-
-                if goal.limit_seconds > 0:
-                    self.dashboard_text.insert(
-                        tk.END,
-                        f"  limit:  {format_seconds(goal.limit_seconds)}\n",
-                    )
-
-                self.dashboard_text.insert(
-                    tk.END,
-                    f"  status: {goal.status}\n",
-                )
-                self.dashboard_text.insert(
-                    tk.END,
-                    f"  note:   {goal.message}\n",
-                )
-                self.dashboard_text.insert(tk.END, "\n")
-
-        self.dashboard_text.insert(tk.END, "WARNINGS\n")
-        self.dashboard_text.insert(tk.END, "-" * 70 + "\n")
-
-        if not view.warnings:
-            self.dashboard_text.insert(tk.END, "No warnings.\n")
-        else:
-            for warning in view.warnings:
-                self.dashboard_text.insert(
-                    tk.END,
-                    f"[{warning.warning_type}] {warning.message}\n",
-                )
-
-    def refresh_goals(self) -> None:
-        activity_date = self.get_selected_date()
-
-        self.goals_text.delete("1.0", tk.END)
-
-        try:
-            day_view = build_goal_progress_day_view(activity_date)
-        except Exception as error:
-            self.goals_text.insert(tk.END, f"Error loading goal progress:\n{error}")
-            return
-
-        self.goals_text.insert(
-            tk.END,
-            f"GOAL PROGRESS FOR {day_view.activity_date}\n",
-        )
-        self.goals_text.insert(tk.END, "=" * 60 + "\n\n")
-
-        for result in day_view.results:
-            self.goals_text.insert(tk.END, f"{result.title}\n")
-            self.goals_text.insert(tk.END, f"id: {result.goal_id}\n")
-            self.goals_text.insert(
-                tk.END,
-                f"desktop: {format_seconds(result.desktop_seconds)}\n",
-            )
-            self.goals_text.insert(
-                tk.END,
-                f"manual:  {format_seconds(result.manual_seconds)}\n",
-            )
-            self.goals_text.insert(
-                tk.END,
-                f"total:   {format_seconds(result.total_seconds)}\n",
-            )
-
-            if result.manual_entries:
-                self.goals_text.insert(tk.END, "manual entries:\n")
-
-                for entry in result.manual_entries:
-                    self.goals_text.insert(
-                        tk.END,
-                        f"  - #{entry.id} {entry.title}: "
-                        f"{format_seconds(entry.seconds)} [{entry.source}]\n",
-                    )
-
-            if result.limit_seconds is not None and result.status in {
-                "within limit",
-                "over limit",
-            }:
-                self.goals_text.insert(
-                    tk.END,
-                    f"limit:   {format_seconds(result.limit_seconds)}\n",
-                )
-                self.goals_text.insert(tk.END, f"status: {result.status}\n")
-
-                if result.status == "within limit":
-                    self.goals_text.insert(
-                        tk.END,
-                        f"remaining: {format_seconds(result.remaining_seconds)}\n",
-                    )
-                else:
-                    self.goals_text.insert(
-                        tk.END,
-                        f"over by: {format_seconds(result.extra_seconds)}\n",
-                    )
-
-            elif result.target_seconds is not None:
-                self.goals_text.insert(
-                    tk.END,
-                    f"target:  {format_seconds(result.target_seconds)}\n",
-                )
-                self.goals_text.insert(tk.END, f"status: {result.status}\n")
-
-                if result.status == "below target":
-                    self.goals_text.insert(
-                        tk.END,
-                        f"missing: {format_seconds(result.missing_seconds)}\n",
-                    )
-                elif result.status == "target reached":
-                    self.goals_text.insert(
-                        tk.END,
-                        f"extra:   {format_seconds(result.extra_seconds)}\n",
-                    )
-            else:
-                self.goals_text.insert(tk.END, "status: not configured\n")
-
-            self.goals_text.insert(tk.END, "\n" + "-" * 60 + "\n\n")
-
-    def refresh_manual(self) -> None:
-        activity_date = self.get_selected_date()
-
-        for item in self.manual_tree.get_children():
-            self.manual_tree.delete(item)
-
-        try:
-            entries = list_manual_activities(activity_date=activity_date)
-        except Exception as error:
-            messagebox.showerror("Manual activity error", str(error))
-            return
-
-        for entry in entries:
-            self.manual_tree.insert(
+            self.rules_tree.insert(
                 "",
-                tk.END,
+                "end",
+                iid=rule_id,
                 values=(
-                    entry.id,
-                    entry.activity_date,
-                    entry.goal_id,
-                    entry.title,
-                    format_manual_seconds(entry.seconds),
-                    entry.source,
+                    str(rule.get("source", "manual")),
+                    "yes" if bool(rule.get("enabled", True)) else "no",
+                    str(rule.get("type", "")),
+                    str(rule.get("value", "")),
+                    str(rule.get("category", "unknown")),
+                    str(rule.get("reason", "")),
                 ),
             )
 
-    def refresh_preset_buttons(self) -> None:
-        for widget in self.presets_buttons_frame.winfo_children():
-            widget.destroy()
+        self.status_var.set(f"Loaded rules: {len(rules)}")
 
+    def find_rule_by_id(self, rule_id: str) -> dict | None:
         try:
-            presets = load_presets()
+            rules = list_rules(include_builtin=True)
         except Exception as error:
-            ttk.Label(
-                self.presets_buttons_frame,
-                text=f"Error loading presets: {error}",
-            ).pack(anchor=tk.W)
-            return
+            messagebox.showerror("Load failed", str(error), parent=self)
+            return None
 
-        if not presets:
-            ttk.Label(
-                self.presets_buttons_frame,
-                text="No presets found.",
-            ).pack(anchor=tk.W)
-            return
+        for rule in rules:
+            if str(rule.get("id", "")) == rule_id:
+                return rule
 
-        for preset in presets:
-            button_text = (
-                f"+ {preset.title} "
-                f"({format_manual_seconds(preset.seconds)})"
-            )
+        return None
 
-            button = ttk.Button(
-                self.presets_buttons_frame,
-                text=button_text,
-                command=lambda preset_id=preset.preset_id: self.add_preset(preset_id),
-            )
-            button.pack(side=tk.LEFT, padx=5, pady=5)
-
-    def add_preset(self, preset_id: str) -> None:
-        activity_date = self.get_selected_date()
-
-        try:
-            entry = add_manual_activity_from_preset(
-                preset_id=preset_id,
-                activity_date=activity_date,
-            )
-        except Exception as error:
-            messagebox.showerror("Add manual activity error", str(error))
-            return
-
-        messagebox.showinfo(
-            "Manual activity added",
-            (
-                f"Added:\n"
-                f"#{entry.id} {entry.title}\n"
-                f"{format_manual_seconds(entry.seconds)}"
-            ),
+    def add_rule_dialog(self) -> None:
+        dialog = ActivityRuleDialog(
+            parent=self,
+            title="Add manual rule",
+            initial_rule={
+                "type": "title_contains",
+                "category": "neutral",
+                "enabled": True,
+            },
         )
 
-        self.refresh_all()
+        self.wait_window(dialog)
 
-    def delete_selected_manual_entry(self) -> None:
-        selected_items = self.manual_tree.selection()
+        if dialog.result is None:
+            return
 
-        if not selected_items:
+        self.save_dialog_result_as_new_rule(dialog.result)
+
+    def add_rule_from_current_app(self) -> None:
+        process_name, window_title = self.get_current_process_and_title()
+
+        if not process_name:
             messagebox.showwarning(
-                "No selection",
-                "Select a manual entry first.",
+                "No process",
+                "Current process name is empty.",
+                parent=self,
             )
             return
 
-        item_id = selected_items[0]
-        values = self.manual_tree.item(item_id, "values")
-
-        if not values:
-            return
-
-        entry_id = int(values[0])
-
-        confirmed = messagebox.askyesno(
-            "Delete manual activity",
-            f"Delete manual activity #{entry_id}?",
+        dialog = ActivityRuleDialog(
+            parent=self,
+            title="Add rule from current app",
+            initial_rule={
+                "type": "process",
+                "value": process_name,
+                "category": "neutral",
+                "reason": f"From current activity: {window_title}",
+                "enabled": True,
+            },
         )
 
-        if not confirmed:
+        self.wait_window(dialog)
+
+        if dialog.result is None:
             return
 
-        try:
-            deleted_entry = delete_manual_activity(entry_id)
-        except Exception as error:
-            messagebox.showerror("Delete error", str(error))
-            return
+        self.save_dialog_result_as_new_rule(dialog.result)
 
-        if deleted_entry is None:
+    def add_rule_from_current_title(self) -> None:
+        process_name, window_title = self.get_current_process_and_title()
+
+        if not window_title:
             messagebox.showwarning(
-                "Not found",
-                f"Manual activity #{entry_id} was not found.",
+                "No title",
+                "Current window title is empty.",
+                parent=self,
             )
-        else:
+            return
+
+        dialog = ActivityRuleDialog(
+            parent=self,
+            title="Add rule from current title",
+            initial_rule={
+                "type": "title_contains",
+                "value": window_title,
+                "category": "neutral",
+                "reason": f"From current process: {process_name}",
+                "enabled": True,
+            },
+        )
+
+        self.wait_window(dialog)
+
+        if dialog.result is None:
+            return
+
+        self.save_dialog_result_as_new_rule(dialog.result)
+
+    def save_dialog_result_as_new_rule(self, result: dict) -> None:
+        try:
+            saved_rule = add_activity_rule(
+                rule_type=result["type"],
+                value=result["value"],
+                category=result["category"],
+                reason=result["reason"],
+                enabled=result["enabled"],
+            )
+        except Exception as error:
+            messagebox.showerror("Add failed", str(error), parent=self)
+            self.status_var.set("Add failed.")
+            return
+
+        saved_rule_id = str(saved_rule.get("id", ""))
+
+        self.refresh_rules()
+        self.select_rule(saved_rule_id)
+        self.status_var.set(f"Added manual rule: {saved_rule_id}")
+
+    def edit_selected_rule(self) -> None:
+        rule_id = self.get_selected_rule_id()
+
+        if not rule_id:
+            messagebox.showwarning("No selection", "Select a rule first.", parent=self)
+            return
+
+        rule = self.find_rule_by_id(rule_id)
+
+        if rule is None:
+            messagebox.showerror("Rule not found", rule_id, parent=self)
+            self.refresh_rules()
+            return
+
+        if str(rule.get("source", "manual")) == "built_in":
             messagebox.showinfo(
-                "Deleted",
-                f"Deleted #{deleted_entry.id}: {deleted_entry.title}",
+                "Built-in rule",
+                (
+                    "Built-in rules are read-only.\n\n"
+                    "Create a manual rule with the same process/title/domain "
+                    "and another category. Manual rules override built-in rules."
+                ),
+                parent=self,
             )
+            return
 
-        self.refresh_all()
+        dialog = ActivityRuleDialog(
+            parent=self,
+            title="Edit manual rule",
+            initial_rule=rule,
+        )
 
-    def refresh_schedule(self) -> None:
-        activity_date = self.get_selected_date()
+        self.wait_window(dialog)
 
-        self.schedule_text.delete("1.0", tk.END)
+        if dialog.result is None:
+            return
 
         try:
-            day_view = build_schedule_day_view(
-                date.fromisoformat(activity_date)
+            saved_rule = update_activity_rule(
+                rule_id=rule_id,
+                updates=dialog.result,
             )
         except Exception as error:
-            self.schedule_text.insert(tk.END, f"Error loading schedule:\n{error}")
+            messagebox.showerror("Update failed", str(error), parent=self)
+            self.status_var.set("Update failed.")
             return
 
-        self.schedule_text.insert(
-            tk.END,
-            f"SCHEDULE FOR {day_view.activity_date.isoformat()} | "
-            f"{day_view.weekday}\n",
-        )
-        self.schedule_text.insert(tk.END, "=" * 70 + "\n\n")
+        saved_rule_id = str(saved_rule.get("id", rule_id))
 
-        if not day_view.events:
-            self.schedule_text.insert(tk.END, "No scheduled activities found.\n")
+        self.refresh_rules()
+        self.select_rule(saved_rule_id)
+        self.status_var.set(f"Updated manual rule: {saved_rule_id}")
+
+    def delete_selected_rule(self) -> None:
+        rule_id = self.get_selected_rule_id()
+
+        if not rule_id:
+            messagebox.showwarning("No selection", "Select a rule first.", parent=self)
             return
 
-        for event in day_view.events:
-            self.schedule_text.insert(
-                tk.END,
-                f"{event.start_time}–{event.end_time} | "
-                f"{format_minutes_as_duration(event.duration_minutes)}\n",
-            )
-            self.schedule_text.insert(tk.END, f"title: {event.title}\n")
-            self.schedule_text.insert(tk.END, f"id: {event.schedule_id}\n")
-            self.schedule_text.insert(tk.END, f"goal: {event.goal_id or '[none]'}\n")
-            self.schedule_text.insert(tk.END, f"category: {event.category}\n")
-            self.schedule_text.insert(
-                tk.END,
-                f"counts_to_goal: {event.counts_to_goal}\n",
-            )
-            self.schedule_text.insert(
-                tk.END,
-                f"confirmation_mode: {event.confirmation_mode}\n",
-            )
-            self.schedule_text.insert(tk.END, f"blocking: {event.blocking}\n")
-            self.schedule_text.insert(tk.END, "\n" + "-" * 70 + "\n\n")
+        rule = self.find_rule_by_id(rule_id)
 
-        self.schedule_text.insert(tk.END, "SUMMARY\n")
-        self.schedule_text.insert(
-            tk.END,
-            f"planned goal time:     "
-            f"{format_minutes_as_duration(day_view.planned_goal_minutes)}\n",
-        )
-        self.schedule_text.insert(
-            tk.END,
-            f"planned non-goal time: "
-            f"{format_minutes_as_duration(day_view.planned_non_goal_minutes)}\n",
-        )
-        self.schedule_text.insert(
-            tk.END,
-            f"planned total time:    "
-            f"{format_minutes_as_duration(day_view.planned_total_minutes)}\n\n",
+        if rule is None:
+            messagebox.showerror("Rule not found", rule_id, parent=self)
+            self.refresh_rules()
+            return
+
+        if str(rule.get("source", "manual")) == "built_in":
+            messagebox.showinfo(
+                "Built-in rule",
+                "Built-in rules cannot be deleted. Create a manual override instead.",
+                parent=self,
+            )
+            return
+
+        confirm = messagebox.askyesno(
+            "Delete rule",
+            "Delete selected manual rule?",
+            parent=self,
         )
 
-        self.schedule_text.insert(tk.END, "CONFLICTS\n")
+        if not confirm:
+            return
 
-        if not day_view.conflicts:
-            self.schedule_text.insert(tk.END, "No schedule conflicts found.\n")
+        try:
+            delete_activity_rule(rule_id)
+        except Exception as error:
+            messagebox.showerror("Delete failed", str(error), parent=self)
+            return
+
+        self.refresh_rules()
+        self.status_var.set(f"Deleted manual rule: {rule_id}")
+
+    def select_rule(self, rule_id: str) -> None:
+        if not rule_id:
+            return
+
+        try:
+            self.rules_tree.selection_set(rule_id)
+            self.rules_tree.focus(rule_id)
+            self.rules_tree.see(rule_id)
+        except Exception:
+            pass
+
+
+class LimitsTab(ttk.Frame):
+    def __init__(self, parent: tk.Widget) -> None:
+        super().__init__(parent, padding=14)
+
+        self.status_var = tk.StringVar(value="Ready.")
+
+        self.build_ui()
+        self.refresh_limits()
+
+    def build_ui(self) -> None:
+        ttk.Label(
+            self,
+            text="Limits",
+            font=("Segoe UI", 16, "bold"),
+        ).pack(anchor="w", pady=(0, 8))
+
+        ttk.Label(
+            self,
+            text=(
+                "Limits define how much of an activity/category is acceptable. "
+                "Editing creates a new version and preserves history."
+            ),
+            wraplength=980,
+        ).pack(anchor="w", pady=(0, 12))
+
+        toolbar = ttk.Frame(self)
+        toolbar.pack(fill="x", pady=(0, 10))
+
+        ttk.Button(
+            toolbar,
+            text="+ Add limit",
+            command=self.add_limit_dialog,
+        ).pack(side="left")
+
+        ttk.Button(
+            toolbar,
+            text="+ Create starter limits",
+            command=self.create_starter_limits,
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Button(
+            toolbar,
+            text="Edit selected",
+            command=self.edit_selected_limit,
+        ).pack(side="left", padx=(16, 0))
+
+        ttk.Button(
+            toolbar,
+            text="Pause selected",
+            command=self.pause_selected_limit,
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Button(
+            toolbar,
+            text="Delete selected",
+            command=self.delete_selected_limit,
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Button(
+            toolbar,
+            text="Refresh",
+            command=self.refresh_limits,
+        ).pack(side="right")
+
+        self.build_limits_table()
+
+        ttk.Label(
+            self,
+            textvariable=self.status_var,
+            foreground="gray",
+        ).pack(anchor="w", pady=(8, 0))
+
+    def build_limits_table(self) -> None:
+        table_frame = ttk.LabelFrame(self, text="Limits and history", padding=8)
+        table_frame.pack(fill="both", expand=True)
+
+        columns = (
+            "status",
+            "source",
+            "target_type",
+            "target_value",
+            "period",
+            "minutes",
+            "severity",
+            "active_from",
+            "active_to",
+            "reason",
+        )
+
+        self.limits_tree = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+            height=18,
+        )
+
+        headings = {
+            "status": "Status",
+            "source": "Source",
+            "target_type": "Target type",
+            "target_value": "Target value",
+            "period": "Period",
+            "minutes": "Minutes",
+            "severity": "Severity",
+            "active_from": "Active from",
+            "active_to": "Active to",
+            "reason": "Reason",
+        }
+
+        for column, title in headings.items():
+            self.limits_tree.heading(column, text=title)
+
+        self.limits_tree.column("status", width=90, anchor="w")
+        self.limits_tree.column("source", width=90, anchor="w")
+        self.limits_tree.column("target_type", width=110, anchor="w")
+        self.limits_tree.column("target_value", width=180, anchor="w")
+        self.limits_tree.column("period", width=80, anchor="w")
+        self.limits_tree.column("minutes", width=80, anchor="center")
+        self.limits_tree.column("severity", width=90, anchor="w")
+        self.limits_tree.column("active_from", width=160, anchor="w")
+        self.limits_tree.column("active_to", width=160, anchor="w")
+        self.limits_tree.column("reason", width=280, anchor="w")
+
+        y_scrollbar = ttk.Scrollbar(
+            table_frame,
+            orient="vertical",
+            command=self.limits_tree.yview,
+        )
+
+        x_scrollbar = ttk.Scrollbar(
+            table_frame,
+            orient="horizontal",
+            command=self.limits_tree.xview,
+        )
+
+        self.limits_tree.configure(
+            yscrollcommand=y_scrollbar.set,
+            xscrollcommand=x_scrollbar.set,
+        )
+
+        self.limits_tree.grid(row=0, column=0, sticky="nsew")
+        y_scrollbar.grid(row=0, column=1, sticky="ns")
+        x_scrollbar.grid(row=1, column=0, sticky="ew")
+
+        table_frame.rowconfigure(0, weight=1)
+        table_frame.columnconfigure(0, weight=1)
+
+        self.limits_tree.bind("<Double-1>", lambda _event: self.edit_selected_limit())
+
+    def create_starter_limits(self) -> None:
+        try:
+            created = seed_starter_limits_if_empty()
+        except Exception as error:
+            messagebox.showerror(
+                "Starter limits failed",
+                str(error),
+                parent=self,
+            )
+            self.status_var.set("Starter limits failed.")
+            return
+
+        self.refresh_limits()
+
+        if created:
+            self.status_var.set(f"Created starter limits: {len(created)}")
         else:
-            for conflict in day_view.conflicts:
-                first = conflict.first_event
-                second = conflict.second_event
+            self.status_var.set("Starter limits already exist.")
 
-                self.schedule_text.insert(
-                    tk.END,
-                    f"CONFLICT: {first.start_time}–{first.end_time} {first.title} "
-                    f"overlaps with {second.start_time}–{second.end_time} "
-                    f"{second.title}\n",
+    def refresh_limits(self) -> None:
+        for row in self.limits_tree.get_children():
+            self.limits_tree.delete(row)
+
+        try:
+            rules = list_limit_rules(include_inactive=True)
+        except Exception as error:
+            messagebox.showerror("Load failed", str(error), parent=self)
+            self.status_var.set("Failed to load limits.")
+            return
+
+        for rule in rules:
+            rule_id = str(rule.get("id", ""))
+
+            if not rule_id:
+                continue
+
+            self.limits_tree.insert(
+                "",
+                "end",
+                iid=rule_id,
+                values=(
+                    str(rule.get("status", "")),
+                    str(rule.get("source", "")),
+                    str(rule.get("target_type", "")),
+                    str(rule.get("target_value", "")),
+                    str(rule.get("period", "")),
+                    str(rule.get("limit_minutes", "")),
+                    str(rule.get("severity", "")),
+                    str(rule.get("active_from", "")),
+                    str(rule.get("active_to") or ""),
+                    str(rule.get("reason", "")),
+                ),
+            )
+
+        self.status_var.set(f"Loaded limits/history records: {len(rules)}")
+
+    def get_selected_limit_id(self) -> str | None:
+        selected = self.limits_tree.selection()
+        return str(selected[0]) if selected else None
+
+    def find_limit_by_id(self, rule_id: str) -> dict | None:
+        for rule in list_limit_rules(include_inactive=True):
+            if str(rule.get("id", "")) == rule_id:
+                return rule
+
+        return None
+
+    def add_limit_dialog(self) -> None:
+        dialog = LimitRuleDialog(
+            parent=self,
+            title="Add limit",
+            initial_rule={
+                "target_type": "category",
+                "target_value": "time_wasting",
+                "period": "daily",
+                "limit_minutes": 60,
+                "severity": "warning",
+            },
+        )
+
+        self.wait_window(dialog)
+
+        if dialog.result is None:
+            return
+
+        try:
+            saved = add_limit_rule(
+                target_type=dialog.result["target_type"],
+                target_value=dialog.result["target_value"],
+                period=dialog.result["period"],
+                limit_minutes=dialog.result["limit_minutes"],
+                severity=dialog.result["severity"],
+                goal_id=dialog.result["goal_id"],
+                reason=dialog.result["reason"],
+                source="manual",
+            )
+        except Exception as error:
+            messagebox.showerror("Add failed", str(error), parent=self)
+            return
+
+        self.refresh_limits()
+        self.select_limit(str(saved.get("id", "")))
+        self.status_var.set(f"Added limit: {saved.get('id', '')}")
+
+    def edit_selected_limit(self) -> None:
+        rule_id = self.get_selected_limit_id()
+
+        if not rule_id:
+            messagebox.showwarning("No selection", "Select a limit first.", parent=self)
+            return
+
+        rule = self.find_limit_by_id(rule_id)
+
+        if rule is None:
+            messagebox.showerror("Not found", f"Limit not found: {rule_id}", parent=self)
+            self.refresh_limits()
+            return
+
+        if str(rule.get("status", "")) != "active":
+            messagebox.showinfo(
+                "Inactive limit",
+                "Only active limits can be edited. Old records are history.",
+                parent=self,
+            )
+            return
+
+        dialog = LimitRuleDialog(
+            parent=self,
+            title="Edit limit",
+            initial_rule=rule,
+        )
+
+        self.wait_window(dialog)
+
+        if dialog.result is None:
+            return
+
+        try:
+            saved = replace_limit_rule(
+                rule_id=rule_id,
+                updates=dialog.result,
+                reason=dialog.result.get("reason", ""),
+            )
+        except Exception as error:
+            messagebox.showerror("Update failed", str(error), parent=self)
+            return
+
+        self.refresh_limits()
+        self.select_limit(str(saved.get("id", "")))
+        self.status_var.set(f"Updated limit version: {saved.get('id', '')}")
+
+    def pause_selected_limit(self) -> None:
+        rule_id = self.get_selected_limit_id()
+
+        if not rule_id:
+            messagebox.showwarning("No selection", "Select a limit first.", parent=self)
+            return
+
+        confirm = messagebox.askyesno(
+            "Pause limit",
+            "Pause selected active limit?",
+            parent=self,
+        )
+
+        if not confirm:
+            return
+
+        try:
+            paused = pause_limit_rule(rule_id, reason="Paused manually")
+        except Exception as error:
+            messagebox.showerror("Pause failed", str(error), parent=self)
+            return
+
+        self.refresh_limits()
+        self.select_limit(str(paused.get("id", "")))
+        self.status_var.set(f"Paused limit: {rule_id}")
+
+    def delete_selected_limit(self) -> None:
+        rule_id = self.get_selected_limit_id()
+
+        if not rule_id:
+            messagebox.showwarning("No selection", "Select a limit first.", parent=self)
+            return
+
+        confirm = messagebox.askyesno(
+            "Delete limit",
+            "Mark selected limit as deleted?",
+            parent=self,
+        )
+
+        if not confirm:
+            return
+
+        try:
+            deleted = delete_limit_rule(rule_id, reason="Deleted manually")
+        except Exception as error:
+            messagebox.showerror("Delete failed", str(error), parent=self)
+            return
+
+        self.refresh_limits()
+        self.select_limit(str(deleted.get("id", "")))
+        self.status_var.set(f"Deleted limit: {rule_id}")
+
+    def select_limit(self, rule_id: str) -> None:
+        if not rule_id:
+            return
+
+        try:
+            self.limits_tree.selection_set(rule_id)
+            self.limits_tree.focus(rule_id)
+            self.limits_tree.see(rule_id)
+        except Exception:
+            pass
+
+
+class GoalsTab(ttk.Frame):
+    def __init__(self, parent: tk.Widget) -> None:
+        super().__init__(parent, padding=14)
+
+        self.text = tk.Text(self, wrap="word")
+        self.build_ui()
+        self.refresh()
+
+    def build_ui(self) -> None:
+        top = ttk.Frame(self)
+        top.pack(fill="x", pady=(0, 8))
+
+        ttk.Label(
+            top,
+            text="Goals",
+            font=("Segoe UI", 16, "bold"),
+        ).pack(side="left")
+
+        ttk.Button(
+            top,
+            text="Refresh",
+            command=self.refresh,
+        ).pack(side="right")
+
+        self.text.pack(fill="both", expand=True)
+
+    def refresh(self) -> None:
+        self.text.delete("1.0", "end")
+
+        try:
+            profile = load_goal_profile()
+        except Exception as error:
+            self.text.insert("end", f"Failed to load goal profile:\n{error}")
+            return
+
+        main_goals = profile.get("main_goals", [])
+
+        if not main_goals:
+            self.text.insert("end", "No goals found.")
+            return
+
+        for index, goal in enumerate(main_goals, start=1):
+            self.text.insert("end", f"{index}. {goal.get('title', '')}\n")
+            self.text.insert("end", f"   status: {goal.get('status', '')}\n")
+            self.text.insert("end", f"   priority: {goal.get('priority', '')}\n")
+
+            horizon = goal.get("time_horizon", {})
+            if isinstance(horizon, dict):
+                self.text.insert(
+                    "end",
+                    f"   time horizon: {horizon.get('type', '')}, review: {horizon.get('review_interval', '')}\n",
                 )
-                self.schedule_text.insert(
-                    tk.END,
-                    f"  first_id:  {first.schedule_id}\n",
-                )
-                self.schedule_text.insert(
-                    tk.END,
-                    f"  second_id: {second.schedule_id}\n",
-                )
+
+            why = goal.get("why", "")
+            if why:
+                self.text.insert("end", f"   why: {why}\n")
+
+            success = goal.get("success_definition", "")
+            if success:
+                self.text.insert("end", f"   success: {success}\n")
+
+            subgoals = goal.get("subgoals", [])
+            self.text.insert("end", f"   subgoals: {len(subgoals)}\n")
+
+            for subgoal in subgoals:
+                self.text.insert("end", f"      - {subgoal.get('title', '')}\n")
+
+            limits = goal.get("limits", [])
+            self.text.insert("end", f"   profile limits: {len(limits)}\n")
+
+            for limit in limits:
+                self.text.insert("end", f"      - {limit.get('title', '')}\n")
+
+            self.text.insert("end", "\n")
+
+
+class PlaceholderTab(ttk.Frame):
+    def __init__(self, parent: tk.Widget, title: str, message: str) -> None:
+        super().__init__(parent, padding=14)
+
+        ttk.Label(
+            self,
+            text=title,
+            font=("Segoe UI", 16, "bold"),
+        ).pack(anchor="w", pady=(0, 8))
+
+        ttk.Label(
+            self,
+            text=message,
+            wraplength=900,
+        ).pack(anchor="w")
+
+
+class GoalCompassControlCenter(tk.Tk):
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.title("GoalCompass Control Center")
+        self.geometry("1180x760")
+        self.minsize(960, 620)
+        self.resizable(True, True)
+
+        self.build_ui()
+
+    def build_ui(self) -> None:
+        root = ttk.Frame(self, padding=10)
+        root.pack(fill="both", expand=True)
+
+        ttk.Label(
+            root,
+            text="GoalCompass Control Center",
+            font=("Segoe UI", 18, "bold"),
+        ).pack(anchor="w", pady=(0, 10))
+
+        notebook = ttk.Notebook(root)
+        notebook.pack(fill="both", expand=True)
+
+        notebook.add(DashboardTab(notebook), text="Dashboard")
+        notebook.add(ActivityRulesTab(notebook), text="Activity Rules")
+        notebook.add(LimitsTab(notebook), text="Limits")
+        notebook.add(GoalsTab(notebook), text="Goals")
+        notebook.add(
+            PlaceholderTab(
+                notebook,
+                title="Unknown Review",
+                message=(
+                    "Next step: show unknown processes/titles from DB and allow "
+                    "creating activity rules from selected unknown items."
+                ),
+            ),
+            text="Unknown Review",
+        )
+        notebook.add(
+            PlaceholderTab(
+                notebook,
+                title="Manual Activity",
+                message=(
+                    "Later: add offline activities such as German lesson, workout, "
+                    "family time, reading, rest."
+                ),
+            ),
+            text="Manual Activity",
+        )
 
 
 def main() -> None:
-    app = GoalCompassControlPanel()
+    app = GoalCompassControlCenter()
     app.mainloop()
 
 

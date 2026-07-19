@@ -14,6 +14,17 @@ ROOT_DIR = Path(__file__).resolve().parent
 TRACKER_SCRIPT = ROOT_DIR / "src" / "main.py"
 OVERLAY_SCRIPT = ROOT_DIR / "gui" / "overlay_widget.py"
 CONTROL_PANEL_SCRIPT = ROOT_DIR / "gui" / "control_panel.py"
+SETUP_WIZARD_SCRIPT = ROOT_DIR / "gui" / "setup_wizard.py"
+
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from src.services.settings_service import (  # noqa: E402
+    is_first_run_completed,
+    load_settings,
+    should_start_overlay,
+    should_start_tracker,
+)
 
 
 def log(message: str) -> None:
@@ -30,6 +41,38 @@ def start_process(script_path: Path, name: str) -> subprocess.Popen:
         [sys.executable, str(script_path)],
         cwd=str(ROOT_DIR),
     )
+
+
+def run_setup_wizard_if_needed() -> bool:
+    """
+    Returns True if GoalCompass may continue.
+    Returns False if setup was cancelled or failed.
+    """
+    if is_first_run_completed():
+        return True
+
+    if not SETUP_WIZARD_SCRIPT.exists():
+        log(f"Setup wizard not found: {SETUP_WIZARD_SCRIPT}")
+        return False
+
+    log("First run detected. Starting setup wizard...")
+
+    result = subprocess.run(
+        [sys.executable, str(SETUP_WIZARD_SCRIPT)],
+        cwd=str(ROOT_DIR),
+        check=False,
+    )
+
+    if result.returncode != 0:
+        log(f"Setup wizard exited with code {result.returncode}.")
+        return False
+
+    if not is_first_run_completed():
+        log("Setup wizard finished, but first_run_completed is still false.")
+        return False
+
+    log("Setup completed.")
+    return True
 
 
 def stop_process(process: Optional[subprocess.Popen], name: str) -> None:
@@ -59,17 +102,37 @@ def main() -> None:
     overlay_process: Optional[subprocess.Popen] = None
 
     try:
-        tracker_process = start_process(TRACKER_SCRIPT, "tracker")
+        if not run_setup_wizard_if_needed():
+            log("GoalCompass startup cancelled.")
+            return
+
+        settings = load_settings()
+
+        if should_start_tracker():
+            tracker_process = start_process(TRACKER_SCRIPT, "tracker")
+        else:
+            log("Tracker startup disabled in settings.")
 
         # Small delay so tracker can create/update current_state.json first.
-        time.sleep(1)
+        if tracker_process is not None:
+            time.sleep(1)
 
-        overlay_process = start_process(OVERLAY_SCRIPT, "overlay")
+        if should_start_overlay():
+            overlay_process = start_process(OVERLAY_SCRIPT, "overlay")
+        else:
+            log("Overlay startup disabled in settings.")
+
+        if tracker_process is None and overlay_process is None:
+            log("Nothing to run. Check settings.")
+            return
 
         log("GoalCompass is running.")
-        log("Press Ctrl+C here to stop tracker + overlay.")
+        log("Press Ctrl+C here to stop GoalCompass.")
         log("Control Panel can still be opened separately:")
         log(f"  {sys.executable} {CONTROL_PANEL_SCRIPT}")
+
+        if bool(settings["app"].get("start_control_panel_after_setup", False)):
+            start_process(CONTROL_PANEL_SCRIPT, "control panel")
 
         while True:
             time.sleep(2)
@@ -77,11 +140,11 @@ def main() -> None:
             tracker_code = tracker_process.poll() if tracker_process else None
             overlay_code = overlay_process.poll() if overlay_process else None
 
-            if tracker_code is not None:
+            if tracker_process is not None and tracker_code is not None:
                 log(f"Tracker exited with code {tracker_code}.")
                 break
 
-            if overlay_code is not None:
+            if overlay_process is not None and overlay_code is not None:
                 log(f"Overlay exited with code {overlay_code}.")
                 log("Tracker is still running. Stopping runner now.")
                 break

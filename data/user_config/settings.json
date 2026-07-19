@@ -1,0 +1,33 @@
+{
+  "app": {
+    "first_run_completed": true,
+    "start_tracker": true,
+    "start_overlay": true,
+    "start_control_panel_after_setup": false
+  },
+  "activity_window": {
+    "reset_hour": 3
+  },
+  "overlay": {
+    "enabled": true,
+    "show_badge": true,
+    "show_popup": true,
+    "refresh_seconds": 3
+  },
+  "notifications": {
+    "enabled": true,
+    "time_wasting_warning": true
+  },
+  "coach": {
+    "style": "direct"
+  },
+  "mvp": {
+    "setup_version": 1
+  },
+  "goals_setup": {
+    "project": true,
+    "german": true,
+    "reduce_gaming": true,
+    "sleep": true
+  }
+}

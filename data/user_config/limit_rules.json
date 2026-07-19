@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "id": "limit_1784446443502",
+      "version_of": "limit_1784446443502",
+      "source": "starter_default",
+      "target_type": "category",
+      "target_value": "time_wasting",
+      "period": "daily",
+      "limit_minutes": 60,
+      "severity": "warning",
+      "status": "active",
+      "goal_id": "",
+      "reason": "Starter default limit",
+      "created_at": "2026-07-19 09:34:03",
+      "active_from": "2026-07-19 09:34:03",
+      "active_to": null,
+      "changed_from_rule_id": ""
+    },
+    {
+      "id": "limit_1784446443511",
+      "version_of": "limit_1784446443511",
+      "source": "starter_default",
+      "target_type": "category",
+      "target_value": "distracting",
+      "period": "daily",
+      "limit_minutes": 30,
+      "severity": "badge",
+      "status": "active",
+      "goal_id": "",
+      "reason": "Starter default limit",
+      "created_at": "2026-07-19 09:34:03",
+      "active_from": "2026-07-19 09:34:03",
+      "active_to": null,
+      "changed_from_rule_id": ""
+    }
+  ]
+}

@@ -25,6 +25,12 @@ from src.goals.goal_loader import load_goals
 from src.monitor.process_monitor import get_foreground_process_info
 from src.notifier.notifier import notify
 from src.outcomes.outcome_engine import OutcomeEngine
+from src.services.activity_window_service import (
+    get_activity_window_display_seconds,
+    get_activity_window_key,
+    get_seconds_by_category_in_activity_window,
+    get_seconds_until_next_activity_window,
+)
 from src.services.current_state_service import write_current_state
 from src.services.notification_event_service import write_notification_event
 from src.signals.signals_engine import SignalsEngine
@@ -127,14 +133,12 @@ def get_daily_display_seconds(
     activity_state: str,
 ) -> int:
     """
-    Value shown in the mini overlay.
+    Legacy calendar-day display helper.
 
-    Active:
-        show today's total for the current category.
+    Currently main() uses activity-window display instead:
+        03:00 -> 02:59
 
-    Idle:
-        do not count/display productive or wasted time.
-        Idle is a pause state for the mini overlay.
+    Kept for now because other modules/tests may still import it.
     """
     if activity_state == "idle":
         return 0
@@ -171,7 +175,8 @@ def build_notification_key(
     Build notification de-duplication key.
 
     daily_accumulate:
-        notify once per date + category + mode.
+        notify once per GoalCompass activity window + category + mode.
+        Activity window is 03:00 -> 02:59.
 
     instant / other:
         notify once per process + category + mode.
@@ -180,7 +185,7 @@ def build_notification_key(
 
     if mode == "daily_accumulate":
         return (
-            date.today().isoformat(),
+            get_activity_window_key(),
             category,
             mode,
         )
@@ -207,6 +212,13 @@ def format_seconds(seconds: int) -> str:
 
 
 def print_live_stats(counter: LiveCounter, current_window_title: str = "") -> None:
+    """
+    Debug live stats.
+
+    Note:
+        These totals are still calendar-day totals from LiveCounter.
+        Mini overlay and daily warning use activity-window totals instead.
+    """
     session = counter.get_current_session_info()
     category_totals = counter.get_daily_totals_by_category()
     state_totals = counter.get_daily_totals_by_state()
@@ -300,6 +312,10 @@ def process_goal_pipeline(
 
     goal_events are raw alignment events.
     They are NOT effectiveness conclusions.
+
+    Note:
+        event_date currently remains calendar date.
+        This keeps DB/history standardized.
     """
 
     signals = signals_engine.generate_for_session(
@@ -507,12 +523,37 @@ def main() -> None:
             if session and session["process_name"] == process_name:
                 current_session_seconds = int(session["seconds"])
 
-            daily_category_total_seconds = counter.get_daily_total_by_category(category)
-            daily_display_seconds = get_daily_display_seconds(
-                counter=counter,
+            # Activity-window total:
+            #   03:00 -> 02:59
+            # Used for daily warning limits.
+            saved_activity_window_seconds = get_seconds_by_category_in_activity_window(
+                db_path=DB_PATH,
                 category=category,
-                activity_state=activity_state,
+                active_only=True,
             )
+
+            live_current_session_seconds = 0
+            if activity_state == "active":
+                live_current_session_seconds = current_session_seconds
+
+            saved_activity_window_seconds = get_seconds_by_category_in_activity_window(
+                db_path=DB_PATH,
+                category=category,
+                active_only=True,
+            )
+
+            live_current_session_seconds = 0
+            if activity_state == "active":
+                live_current_session_seconds = current_session_seconds
+
+            daily_category_total_seconds = (
+                    saved_activity_window_seconds + live_current_session_seconds
+            )
+
+            if activity_state == "idle":
+                daily_display_seconds = 0
+            else:
+                daily_display_seconds = daily_category_total_seconds
 
             write_current_state(
                 process_name=process_name,
@@ -568,7 +609,7 @@ def main() -> None:
                     f"State: {activity_state}\n"
                     f"Window: {window_title or '[empty]'}\n"
                     f"Session: {format_seconds(current_session_seconds)}\n"
-                    f"Daily total [{category}]: "
+                    f"Activity window total [{category}]: "
                     f"{format_seconds(daily_category_total_seconds)}"
                 )
 
@@ -581,7 +622,7 @@ def main() -> None:
                     title=f"{category} limit reached",
                     message=message,
                     popup_expires_after_seconds=8,
-                    badge_expires_after_seconds=3600,
+                    badge_expires_after_seconds=get_seconds_until_next_activity_window(),
                 )
 
                 sent_notification_keys.add(notify_key)

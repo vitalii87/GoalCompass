@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "id": "rule_1784046548636",
+      "type": "title_contains",
+      "value": "https://mail.google.com",
+      "category": "neutral",
+      "reason": "",
+      "applies_to_goal_ids": [],
+      "enabled": true,
+      "source": "manual",
+      "editable": true
+    },
+    {
+      "id": "rule_1784046658149",
+      "type": "process",
+      "value": "wot",
+      "category": "time_wasting",
+      "reason": "gaming",
+      "applies_to_goal_ids": [],
+      "enabled": true,
+      "source": "manual",
+      "editable": true
+    },
+    {
+      "id": "rule_1784372008281",
+      "source": "manual",
+      "type": "title_contains",
+      "value": "goalcompass activity rules",
+      "category": "neutral",
+      "reason": "From current process: python3.10.exe",
+      "applies_to_goal_ids": [],
+      "enabled": true,
+      "editable": true
+    }
+  ]
+}
