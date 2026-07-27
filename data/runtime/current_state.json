@@ -1,10 +1,10 @@
 {
-  "updated_at": "2026-07-18T16:55:40",
-  "process_name": "pycharm64.exe",
-  "window_title": "lazy_coach – control_panel.py",
-  "category": "productive",
-  "activity_state": "active",
-  "panel_status": "positive",
-  "session_seconds": 6,
-  "today_category_seconds": 1526
+  "updated_at": "2026-07-21T23:00:32",
+  "process_name": "searchhost.exe",
+  "window_title": "Search",
+  "category": "ignored",
+  "activity_state": "idle",
+  "panel_status": "idle",
+  "session_seconds": 0,
+  "today_category_seconds": 0
 }

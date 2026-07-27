@@ -44,7 +44,9 @@ DEFAULT_ACTIVITY_RULES: dict[str, Any] = {
 
 
 BUILTIN_RULES: list[dict[str, Any]] = [
-    # ignored / system
+    # ------------------------------------------------------------
+    # Ignored / system
+    # ------------------------------------------------------------
     {
         "id": "builtin_process_explorer",
         "source": "built_in",
@@ -68,14 +70,25 @@ BUILTIN_RULES: list[dict[str, Any]] = [
         "applies_to_goal_ids": [],
     },
     {
-        "id": "builtin_process_shellhost",
+        "id": "builtin_process_shellexperiencehost",
         "source": "built_in",
         "type": "process",
-        "value": "shellhost.exe",
+        "value": "shellexperiencehost.exe",
         "category": "ignored",
         "enabled": True,
         "editable": False,
-        "reason": "Windows shell popup / quick settings",
+        "reason": "Windows shell experience",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_process_startmenu",
+        "source": "built_in",
+        "type": "process",
+        "value": "startmenuexperiencehost.exe",
+        "category": "ignored",
+        "enabled": True,
+        "editable": False,
+        "reason": "Windows start menu",
         "applies_to_goal_ids": [],
     },
     {
@@ -90,7 +103,9 @@ BUILTIN_RULES: list[dict[str, Any]] = [
         "applies_to_goal_ids": [],
     },
 
-    # productive apps
+    # ------------------------------------------------------------
+    # Productive apps
+    # ------------------------------------------------------------
     {
         "id": "builtin_process_pycharm64",
         "source": "built_in",
@@ -146,8 +161,32 @@ BUILTIN_RULES: list[dict[str, Any]] = [
         "reason": "Terminal",
         "applies_to_goal_ids": [],
     },
+    {
+        "id": "builtin_process_windowsterminal",
+        "source": "built_in",
+        "type": "process",
+        "value": "windowsterminal.exe",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Terminal",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_process_wt",
+        "source": "built_in",
+        "type": "process",
+        "value": "wt.exe",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Terminal",
+        "applies_to_goal_ids": [],
+    },
 
-    # games / launchers — default starter profile, can be overridden manually
+    # ------------------------------------------------------------
+    # Games / launchers — starter defaults, user can override
+    # ------------------------------------------------------------
     {
         "id": "builtin_process_worldoftanks",
         "source": "built_in",
@@ -156,7 +195,7 @@ BUILTIN_RULES: list[dict[str, Any]] = [
         "category": "time_wasting",
         "enabled": True,
         "editable": False,
-        "reason": "Default starter classification; user can override with manual rule",
+        "reason": "Default starter classification; user can override manually",
         "applies_to_goal_ids": [],
     },
     {
@@ -182,6 +221,17 @@ BUILTIN_RULES: list[dict[str, Any]] = [
         "applies_to_goal_ids": [],
     },
     {
+        "id": "builtin_process_steamwebhelper",
+        "source": "built_in",
+        "type": "process",
+        "value": "steamwebhelper.exe",
+        "category": "time_wasting",
+        "enabled": True,
+        "editable": False,
+        "reason": "Steam helper",
+        "applies_to_goal_ids": [],
+    },
+    {
         "id": "builtin_process_epicgameslauncher",
         "source": "built_in",
         "type": "process",
@@ -192,8 +242,21 @@ BUILTIN_RULES: list[dict[str, Any]] = [
         "reason": "Game launcher",
         "applies_to_goal_ids": [],
     },
+    {
+        "id": "builtin_process_battlenet",
+        "source": "built_in",
+        "type": "process",
+        "value": "battle.net.exe",
+        "category": "time_wasting",
+        "enabled": True,
+        "editable": False,
+        "reason": "Game launcher",
+        "applies_to_goal_ids": [],
+    },
 
-    # safe title rules
+    # ------------------------------------------------------------
+    # Project / coding / AI productive title rules
+    # ------------------------------------------------------------
     {
         "id": "builtin_title_chatgpt",
         "source": "built_in",
@@ -250,6 +313,54 @@ BUILTIN_RULES: list[dict[str, Any]] = [
         "applies_to_goal_ids": [],
     },
     {
+        "id": "builtin_title_python",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "python",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Programming / learning",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_fastapi",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "fastapi",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Programming / learning",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_pytest",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "pytest",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "QA automation",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_playwright",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "playwright",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "QA automation",
+        "applies_to_goal_ids": [],
+    },
+
+    # ------------------------------------------------------------
+    # German learning
+    # ------------------------------------------------------------
+    {
         "id": "builtin_title_deutsch",
         "source": "built_in",
         "type": "title_contains",
@@ -258,6 +369,76 @@ BUILTIN_RULES: list[dict[str, Any]] = [
         "enabled": True,
         "editable": False,
         "reason": "German learning",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_german",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "german",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "German learning",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_grammatik",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "grammatik",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "German grammar",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_translate",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "translate",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Language learning / translation",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_translated",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "translated",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Language learning / translation",
+        "applies_to_goal_ids": [],
+    },
+
+    # ------------------------------------------------------------
+    # Job search / career — safe productive title rules
+    # ------------------------------------------------------------
+    {
+        "id": "builtin_title_indeed",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "indeed",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Job search",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_stepstone",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "stepstone",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Job search",
         "applies_to_goal_ids": [],
     },
     {
@@ -272,6 +453,208 @@ BUILTIN_RULES: list[dict[str, Any]] = [
         "applies_to_goal_ids": [],
     },
     {
+        "id": "builtin_title_xing",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "xing",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Career / job search",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_arbeitsagentur",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "arbeitsagentur",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Job search / employment agency",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_jobcenter",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "jobcenter",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Jobcenter / admin work",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_stellenangebote",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "stellenangebote",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Job offers / job search",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_stellenanzeigen",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "stellenanzeigen",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Job ads / job search",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_bewerbung",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "bewerbung",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Job application",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_lebenslauf",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "lebenslauf",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "CV / resume",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_resume",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "resume",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "CV / resume",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_cover_letter",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "cover letter",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Job application",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_karriere",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "karriere",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Career / job search",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_jobs",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "jobs",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "Job search",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_software_qa",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "software qa",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "QA job search",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_software_qa_dash",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "software-qa",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "QA job search",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_quality_assurance",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "quality assurance",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "QA job search",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_qualitaetsingenieur",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "qualitätsingenieur",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "QA job search",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_qualitaetsmanager",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "qualitätsmanager",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "QA job search",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_test_engineer",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "test engineer",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "QA / testing job search",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_qa_engineer",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "qa engineer",
+        "category": "productive",
+        "enabled": True,
+        "editable": False,
+        "reason": "QA / testing job search",
+        "applies_to_goal_ids": [],
+    },
+
+    # ------------------------------------------------------------
+    # Personal / admin
+    # ------------------------------------------------------------
+    {
         "id": "builtin_title_gmail",
         "source": "built_in",
         "type": "title_contains",
@@ -280,6 +663,28 @@ BUILTIN_RULES: list[dict[str, Any]] = [
         "enabled": True,
         "editable": False,
         "reason": "Personal/admin email",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_bank",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "bank",
+        "category": "personal",
+        "enabled": True,
+        "editable": False,
+        "reason": "Banking / personal admin",
+        "applies_to_goal_ids": [],
+    },
+    {
+        "id": "builtin_title_kleinanzeigen",
+        "source": "built_in",
+        "type": "title_contains",
+        "value": "kleinanzeigen",
+        "category": "personal",
+        "enabled": True,
+        "editable": False,
+        "reason": "Personal marketplace",
         "applies_to_goal_ids": [],
     },
 ]
@@ -557,7 +962,9 @@ def add_activity_rule(
 
 def delete_activity_rule(rule_id: str) -> bool:
     if rule_id.startswith("builtin_"):
-        raise ValueError("Built-in rules cannot be deleted. Create a manual override instead.")
+        raise ValueError(
+            "Built-in rules cannot be deleted. Create a manual override instead."
+        )
 
     rules_file = load_activity_rules()
     old_rules = rules_file.get("rules", [])
@@ -579,7 +986,9 @@ def update_activity_rule(
     updates: dict[str, Any],
 ) -> dict[str, Any]:
     if rule_id.startswith("builtin_"):
-        raise ValueError("Built-in rules cannot be edited. Create a manual override instead.")
+        raise ValueError(
+            "Built-in rules cannot be edited. Create a manual override instead."
+        )
 
     rules_file = load_activity_rules()
     rules = rules_file.get("rules", [])

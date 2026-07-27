@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import sys
 import tkinter as tk
 from pathlib import Path
@@ -12,7 +11,6 @@ from tkinter import messagebox, ttk
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 CURRENT_STATE_PATH = ROOT_DIR / "data" / "runtime" / "current_state.json"
-DB_PATH = ROOT_DIR / "data" / "lazy_coach.db"
 
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -32,6 +30,10 @@ from src.services.limit_rules_service import (  # noqa: E402
     pause_limit_rule,
     replace_limit_rule,
     seed_starter_limits_if_empty,
+)
+from src.services.stats_service import (  # noqa: E402
+    get_dashboard_snapshot,
+    get_today_top_unknown,
 )
 
 
@@ -500,35 +502,63 @@ class DashboardTab(ttk.Frame):
         super().__init__(parent, padding=14)
 
         self.current_var = tk.StringVar(value="Current: unknown")
-        self.totals_var = tk.StringVar(value="No data yet.")
 
         self.build_ui()
         self.refresh()
 
     def build_ui(self) -> None:
+        top = ttk.Frame(self)
+        top.pack(fill="x", pady=(0, 10))
+
         ttk.Label(
-            self,
+            top,
             text="Dashboard",
             font=("Segoe UI", 16, "bold"),
-        ).pack(anchor="w", pady=(0, 10))
+        ).pack(side="left")
+
+        ttk.Button(
+            top,
+            text="Refresh",
+            command=self.refresh,
+        ).pack(side="right")
 
         ttk.Label(
             self,
             textvariable=self.current_var,
             font=("Segoe UI", 10, "bold"),
+            wraplength=1000,
         ).pack(anchor="w", pady=(0, 12))
 
+        self.metrics_frame = ttk.Frame(self)
+        self.metrics_frame.pack(fill="both", expand=True)
+
+    def clear_metrics(self) -> None:
+        for widget in self.metrics_frame.winfo_children():
+            widget.destroy()
+
+    def add_section(self, title: str) -> ttk.Frame:
+        section = ttk.LabelFrame(
+            self.metrics_frame,
+            text=title,
+            padding=10,
+        )
+        section.pack(fill="x", pady=(0, 10))
+        return section
+
+    def add_text_lines(self, parent: tk.Widget, lines: list[str]) -> None:
+        if not lines:
+            ttk.Label(
+                parent,
+                text="No data.",
+                foreground="gray",
+            ).pack(anchor="w")
+            return
+
         ttk.Label(
-            self,
-            textvariable=self.totals_var,
+            parent,
+            text="\n".join(lines),
             justify="left",
         ).pack(anchor="w")
-
-        ttk.Button(
-            self,
-            text="Refresh",
-            command=self.refresh,
-        ).pack(anchor="w", pady=(16, 0))
 
     def refresh(self) -> None:
         state = read_current_state()
@@ -536,44 +566,80 @@ class DashboardTab(ttk.Frame):
         process_name = state.get("process_name") or state.get("process") or ""
         category = state.get("category", "")
         activity_state = state.get("activity_state") or state.get("state") or ""
+        session_seconds = (
+            state.get("current_session_seconds")
+            or state.get("session_seconds")
+            or 0
+        )
         window_title = state.get("window_title") or state.get("title") or ""
 
         self.current_var.set(
-            f"Current: {process_name} | {category} | {activity_state}\n{window_title}"
+            f"Current: {process_name} | {category} | {activity_state} | "
+            f"session={format_seconds(session_seconds)}\n{window_title}"
         )
 
-        totals = self.load_today_totals()
-
-        if not totals:
-            self.totals_var.set("No totals found yet.")
-            return
-
-        lines = ["Today totals:"]
-        for category_name, seconds in totals:
-            lines.append(f"  {category_name}: {format_seconds(seconds)}")
-
-        self.totals_var.set("\n".join(lines))
-
-    def load_today_totals(self) -> list[tuple[str, int]]:
-        if not DB_PATH.exists():
-            return []
+        self.clear_metrics()
 
         try:
-            with sqlite3.connect(str(DB_PATH)) as conn:
-                rows = conn.execute(
-                    """
-                    SELECT category, COALESCE(SUM(seconds), 0)
-                    FROM activity_logs
-                    WHERE date = DATE('now', 'localtime')
-                    GROUP BY category
-                    ORDER BY SUM(seconds) DESC
-                    """
-                ).fetchall()
+            snapshot = get_dashboard_snapshot()
+        except Exception as error:
+            section = self.add_section("Error")
+            ttk.Label(
+                section,
+                text=str(error),
+                foreground="red",
+                wraplength=900,
+            ).pack(anchor="w")
+            return
 
-            return [(str(row[0]), int(row[1] or 0)) for row in rows]
+        today_section = self.add_section(f"Today — {snapshot.get('today', '')}")
 
-        except Exception:
-            return []
+        category_lines = []
+        for item in snapshot.get("totals_by_category", []):
+            category_lines.append(f"{item['category']}: {item['display']}")
+
+        self.add_text_lines(today_section, category_lines)
+
+        state_section = self.add_section("Activity states")
+
+        state_lines = []
+        for item in snapshot.get("totals_by_state", []):
+            state_lines.append(f"{item['activity_state']}: {item['display']}")
+
+        self.add_text_lines(state_section, state_lines)
+
+        limits_section = self.add_section("Active limits")
+
+        limit_lines = []
+        for item in snapshot.get("limit_progress", []):
+            limit_lines.append(
+                f"{item['target_type']}={item['target_value']}: "
+                f"{item['used_display']} / {item['limit_display']} "
+                f"({item['percent']}%) [{item['severity']}]"
+            )
+
+        self.add_text_lines(limits_section, limit_lines)
+
+        top_section = self.add_section("Top processes today")
+
+        top_lines = []
+        for item in snapshot.get("top_processes", []):
+            top_lines.append(
+                f"{item['process_name']} | {item['category']}: {item['display']}"
+            )
+
+        self.add_text_lines(top_section, top_lines)
+
+        unknown_section = self.add_section("Top unknown today")
+
+        unknown_lines = []
+        for item in snapshot.get("top_unknown", []):
+            title = item["window_title"] or "[no title]"
+            unknown_lines.append(
+                f"{item['process_name']}: {item['display']} | {title}"
+            )
+
+        self.add_text_lines(unknown_section, unknown_lines)
 
 
 class ActivityRulesTab(ttk.Frame):
@@ -1394,7 +1460,8 @@ class GoalsTab(ttk.Frame):
             if isinstance(horizon, dict):
                 self.text.insert(
                     "end",
-                    f"   time horizon: {horizon.get('type', '')}, review: {horizon.get('review_interval', '')}\n",
+                    f"   time horizon: {horizon.get('type', '')}, "
+                    f"review: {horizon.get('review_interval', '')}\n",
                 )
 
             why = goal.get("why", "")
@@ -1418,6 +1485,315 @@ class GoalsTab(ttk.Frame):
                 self.text.insert("end", f"      - {limit.get('title', '')}\n")
 
             self.text.insert("end", "\n")
+
+
+class UnknownReviewTab(ttk.Frame):
+    def __init__(self, parent: tk.Widget) -> None:
+        super().__init__(parent, padding=14)
+
+        self.status_var = tk.StringVar(value="Ready.")
+        self.category_var = tk.StringVar(value="neutral")
+
+        self.build_ui()
+        self.refresh_unknown()
+
+    def build_ui(self) -> None:
+        ttk.Label(
+            self,
+            text="Unknown Review",
+            font=("Segoe UI", 16, "bold"),
+        ).pack(anchor="w", pady=(0, 8))
+
+        ttk.Label(
+            self,
+            text=(
+                "Review unknown activities and create manual classification rules. "
+                "Unknown/private/unclear activity is not punished automatically."
+            ),
+            wraplength=980,
+        ).pack(anchor="w", pady=(0, 12))
+
+        toolbar = ttk.Frame(self)
+        toolbar.pack(fill="x", pady=(0, 10))
+
+        ttk.Label(toolbar, text="Classify as:").pack(side="left")
+
+        ttk.Combobox(
+            toolbar,
+            textvariable=self.category_var,
+            values=ACTIVITY_CATEGORIES,
+            state="readonly",
+            width=18,
+        ).pack(side="left", padx=(8, 16))
+
+        ttk.Button(
+            toolbar,
+            text="Create process rule",
+            command=self.create_process_rule,
+        ).pack(side="left")
+
+        ttk.Button(
+            toolbar,
+            text="Create title rule",
+            command=self.create_title_rule,
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Button(
+            toolbar,
+            text="Refresh",
+            command=self.refresh_unknown,
+        ).pack(side="right")
+
+        self.build_unknown_table()
+
+        ttk.Label(
+            self,
+            textvariable=self.status_var,
+            foreground="gray",
+        ).pack(anchor="w", pady=(8, 0))
+
+    def build_unknown_table(self) -> None:
+        table_frame = ttk.LabelFrame(self, text="Unknown activities today", padding=8)
+        table_frame.pack(fill="both", expand=True)
+
+        columns = (
+            "process_name",
+            "seconds",
+            "window_title",
+        )
+
+        self.unknown_tree = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+            height=18,
+        )
+
+        self.unknown_tree.heading("process_name", text="Process")
+        self.unknown_tree.heading("seconds", text="Time")
+        self.unknown_tree.heading("window_title", text="Window title")
+
+        self.unknown_tree.column("process_name", width=220, anchor="w")
+        self.unknown_tree.column("seconds", width=100, anchor="center")
+        self.unknown_tree.column("window_title", width=720, anchor="w")
+
+        y_scrollbar = ttk.Scrollbar(
+            table_frame,
+            orient="vertical",
+            command=self.unknown_tree.yview,
+        )
+
+        x_scrollbar = ttk.Scrollbar(
+            table_frame,
+            orient="horizontal",
+            command=self.unknown_tree.xview,
+        )
+
+        self.unknown_tree.configure(
+            yscrollcommand=y_scrollbar.set,
+            xscrollcommand=x_scrollbar.set,
+        )
+
+        self.unknown_tree.grid(row=0, column=0, sticky="nsew")
+        y_scrollbar.grid(row=0, column=1, sticky="ns")
+        x_scrollbar.grid(row=1, column=0, sticky="ew")
+
+        table_frame.rowconfigure(0, weight=1)
+        table_frame.columnconfigure(0, weight=1)
+
+        self.unknown_tree.bind("<Double-1>", lambda _event: self.create_title_rule())
+
+    def refresh_unknown(self) -> None:
+        for row in self.unknown_tree.get_children():
+            self.unknown_tree.delete(row)
+
+        try:
+            unknown_items = get_today_top_unknown(limit=50)
+        except Exception as error:
+            messagebox.showerror(
+                "Load failed",
+                str(error),
+                parent=self,
+            )
+            self.status_var.set("Failed to load unknown activities.")
+            return
+
+        for index, item in enumerate(unknown_items, start=1):
+            process_name = str(item.get("process_name", ""))
+            window_title = str(item.get("window_title", ""))
+            display = str(item.get("display", ""))
+
+            row_id = f"unknown_{index}"
+
+            self.unknown_tree.insert(
+                "",
+                "end",
+                iid=row_id,
+                values=(
+                    process_name,
+                    display,
+                    window_title or "[no title]",
+                ),
+            )
+
+        self.status_var.set(f"Loaded unknown items: {len(unknown_items)}")
+
+    def get_selected_unknown(self) -> tuple[str, str] | None:
+        selected = self.unknown_tree.selection()
+
+        if not selected:
+            messagebox.showwarning(
+                "No selection",
+                "Select an unknown activity first.",
+                parent=self,
+            )
+            return None
+
+        values = self.unknown_tree.item(selected[0], "values")
+
+        if not values or len(values) < 3:
+            messagebox.showerror(
+                "Invalid selection",
+                "Selected row has invalid data.",
+                parent=self,
+            )
+            return None
+
+        process_name = str(values[0]).strip()
+        window_title = str(values[2]).strip()
+
+        if window_title == "[no title]":
+            window_title = ""
+
+        return process_name, window_title
+
+    def create_process_rule(self) -> None:
+        selected = self.get_selected_unknown()
+
+        if selected is None:
+            return
+
+        process_name, window_title = selected
+        category = self.category_var.get().strip() or "neutral"
+
+        if not process_name:
+            messagebox.showwarning(
+                "No process",
+                "Selected item has empty process name.",
+                parent=self,
+            )
+            return
+
+        confirm = messagebox.askyesno(
+            "Create process rule",
+            (
+                f"Create manual rule?\n\n"
+                f"process = {process_name}\n"
+                f"category = {category}\n\n"
+                f"This will affect all future activity from this process."
+            ),
+            parent=self,
+        )
+
+        if not confirm:
+            return
+
+        try:
+            saved_rule = add_activity_rule(
+                rule_type="process",
+                value=process_name,
+                category=category,
+                reason=f"Created from Unknown Review. Title: {window_title}",
+                enabled=True,
+            )
+        except Exception as error:
+            messagebox.showerror(
+                "Create rule failed",
+                str(error),
+                parent=self,
+            )
+            self.status_var.set("Create process rule failed.")
+            return
+
+        self.status_var.set(f"Created process rule: {saved_rule.get('id', '')}")
+        self.refresh_unknown()
+
+    def create_title_rule(self) -> None:
+        selected = self.get_selected_unknown()
+
+        if selected is None:
+            return
+
+        process_name, window_title = selected
+        category = self.category_var.get().strip() or "neutral"
+
+        if not window_title:
+            messagebox.showwarning(
+                "No title",
+                "Selected item has empty window title. Use process rule instead.",
+                parent=self,
+            )
+            return
+
+        suggested_title = self.suggest_title_rule_value(window_title)
+
+        dialog = ActivityRuleDialog(
+            parent=self,
+            title="Create title rule from unknown activity",
+            initial_rule={
+                "type": "title_contains",
+                "value": suggested_title,
+                "category": category,
+                "reason": f"Created from Unknown Review. Process: {process_name}",
+                "enabled": True,
+            },
+        )
+
+        self.wait_window(dialog)
+
+        if dialog.result is None:
+            return
+
+        try:
+            saved_rule = add_activity_rule(
+                rule_type=dialog.result["type"],
+                value=dialog.result["value"],
+                category=dialog.result["category"],
+                reason=dialog.result["reason"],
+                enabled=dialog.result["enabled"],
+            )
+        except Exception as error:
+            messagebox.showerror(
+                "Create rule failed",
+                str(error),
+                parent=self,
+            )
+            self.status_var.set("Create title rule failed.")
+            return
+
+        self.status_var.set(f"Created title rule: {saved_rule.get('id', '')}")
+        self.refresh_unknown()
+
+    def suggest_title_rule_value(self, window_title: str) -> str:
+        title = window_title.strip()
+
+        separators = [
+            " - Google Chrome",
+            " - Microsoft Edge",
+            " - Mozilla Firefox",
+            " — Mozilla Firefox",
+            " — Google Chrome",
+        ]
+
+        for separator in separators:
+            if separator in title:
+                title = title.split(separator)[0].strip()
+                break
+
+        if len(title) > 80:
+            title = title[:80].strip()
+
+        return title
 
 
 class PlaceholderTab(ttk.Frame):
@@ -1465,17 +1841,7 @@ class GoalCompassControlCenter(tk.Tk):
         notebook.add(ActivityRulesTab(notebook), text="Activity Rules")
         notebook.add(LimitsTab(notebook), text="Limits")
         notebook.add(GoalsTab(notebook), text="Goals")
-        notebook.add(
-            PlaceholderTab(
-                notebook,
-                title="Unknown Review",
-                message=(
-                    "Next step: show unknown processes/titles from DB and allow "
-                    "creating activity rules from selected unknown items."
-                ),
-            ),
-            text="Unknown Review",
-        )
+        notebook.add(UnknownReviewTab(notebook), text="Unknown Review")
         notebook.add(
             PlaceholderTab(
                 notebook,
@@ -1496,3 +1862,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import tkinter as tk
 from datetime import datetime
@@ -9,15 +10,17 @@ from pathlib import Path
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
+CONTROL_PANEL_PATH = ROOT_DIR / "gui" / "control_panel.py"
+
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 
-from src.services.current_state_service import (
+from src.services.current_state_service import (  # noqa: E402
     is_current_state_stale,
     read_current_state,
 )
-from src.services.notification_event_service import (
+from src.services.notification_event_service import (  # noqa: E402
     NotificationEvent,
     is_badge_expired,
     is_popup_expired,
@@ -52,14 +55,21 @@ def format_seconds_as_hours_minutes(seconds: int) -> str:
     return f"{hours:02d}:{minutes:02d}"
 
 
+def get_creation_flags() -> int:
+    if sys.platform.startswith("win"):
+        return subprocess.CREATE_NEW_PROCESS_GROUP
+
+    return 0
+
+
 class GoalCompassOverlay(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
 
         self.title("GoalCompass")
 
-        # Трохи ширше, бо додали notification badge.
-        self.geometry("190x44+1200+80")
+        # Старий компактний стиль, лише трохи ширше під шестерню.
+        self.geometry("210x44+1200+80")
         self.resizable(False, False)
         self.attributes("-topmost", True)
 
@@ -70,6 +80,7 @@ class GoalCompassOverlay(tk.Tk):
 
         self.last_popup_event_id: str | None = None
         self.active_popup: tk.Toplevel | None = None
+        self.control_panel_process: subprocess.Popen | None = None
 
         self._build_layout()
         self._bind_drag()
@@ -121,6 +132,25 @@ class GoalCompassOverlay(tk.Tk):
         )
         self.status_timer_label.pack(side=tk.LEFT)
 
+        # Маленька шестерня, не ttk.Button, щоб не ламати висоту/лейаут.
+        self.settings_label = tk.Label(
+            self.main_frame,
+            text="⚙",
+            font=("Segoe UI", 10, "bold"),
+            fg="#bdbdbd",
+            bg="#1e1e1e",
+            cursor="hand2",
+            width=2,
+        )
+        self.settings_label.pack(side=tk.LEFT, padx=(8, 0))
+
+        self.settings_label.bind(
+            "<Button-1>",
+            lambda _event: self.open_control_center(),
+        )
+        self.settings_label.bind("<Enter>", self.on_settings_hover)
+        self.settings_label.bind("<Leave>", self.on_settings_leave)
+
     def _bind_drag(self) -> None:
         for widget in (
             self,
@@ -133,6 +163,12 @@ class GoalCompassOverlay(tk.Tk):
             widget.bind("<Button-1>", self.start_drag)
             widget.bind("<B1-Motion>", self.drag_window)
 
+    def on_settings_hover(self, _event: tk.Event) -> None:
+        self.settings_label.config(fg="#ffffff")
+
+    def on_settings_leave(self, _event: tk.Event) -> None:
+        self.settings_label.config(fg="#bdbdbd")
+
     def start_drag(self, event: tk.Event) -> None:
         self.drag_start_x = event.x
         self.drag_start_y = event.y
@@ -141,6 +177,45 @@ class GoalCompassOverlay(tk.Tk):
         x = self.winfo_pointerx() - self.drag_start_x
         y = self.winfo_pointery() - self.drag_start_y
         self.geometry(f"+{x}+{y}")
+
+    def open_control_center(self) -> None:
+        if not CONTROL_PANEL_PATH.exists():
+            self.show_simple_popup(
+                title="Control Center not found",
+                message=str(CONTROL_PANEL_PATH),
+                level="error",
+                icon="⚠",
+            )
+            return
+
+        try:
+            if (
+                self.control_panel_process is not None
+                and self.control_panel_process.poll() is None
+            ):
+                self.show_simple_popup(
+                    title="Control Center",
+                    message="Already running.",
+                    level="info",
+                    icon="⚙",
+                )
+                return
+
+            self.control_panel_process = subprocess.Popen(
+                [sys.executable, str(CONTROL_PANEL_PATH)],
+                cwd=str(ROOT_DIR),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=get_creation_flags(),
+            )
+
+        except Exception as error:
+            self.show_simple_popup(
+                title="Failed to open Control Center",
+                message=str(error),
+                level="error",
+                icon="⚠",
+            )
 
     def refresh_loop(self) -> None:
         self.refresh_data()
@@ -225,6 +300,25 @@ class GoalCompassOverlay(tk.Tk):
             return
 
         self.last_popup_event_id = event.event_id
+        self.show_popup(event)
+
+    def show_simple_popup(
+        self,
+        title: str,
+        message: str,
+        level: str = "info",
+        icon: str = "⚙",
+    ) -> None:
+        event = NotificationEvent(
+            event_id=f"local_{datetime.now().timestamp()}",
+            created_at=datetime.now().isoformat(sep=" ", timespec="seconds"),
+            level=level,
+            icon=icon,
+            title=title,
+            message=message,
+            popup_expires_after_seconds=3,
+            badge_expires_after_seconds=0,
+        )
         self.show_popup(event)
 
     def show_popup(self, event: NotificationEvent) -> None:
