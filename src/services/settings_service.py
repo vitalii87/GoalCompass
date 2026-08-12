@@ -35,12 +35,32 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "enabled": True,
         "time_wasting_warning": True,
     },
+    "automation": {
+        "mode": "manual",
+        "require_confirmation": True,
+    },
+    "interaction": {
+        "mode": "standard",
+        "daily_prompt_limit": 3,
+        "cooldown_minutes": 60,
+    },
     "coach": {
-        "style": "direct",
+        "enabled": True,
+        "style": "neutral",
     },
     "mvp": {
         "setup_version": 1,
     },
+}
+
+
+VALID_AUTOMATION_MODES = {"manual", "ai_assisted", "full_ai"}
+VALID_INTERACTION_MODES = {"silent", "standard", "proactive", "intensive"}
+VALID_COACH_STYLES = {"soft", "neutral", "strict", "aggressive"}
+
+LEGACY_COACH_STYLE_MAP = {
+    "balanced": "neutral",
+    "direct": "neutral",
 }
 
 
@@ -65,6 +85,73 @@ def deep_merge(defaults: dict[str, Any], current: dict[str, Any]) -> dict[str, A
             result[key] = value
 
     return result
+
+
+def clamp_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+
+    return max(minimum, min(maximum, parsed))
+
+
+def normalize_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    """Add defaults and normalize the user-facing operating modes."""
+    normalized = deep_merge(DEFAULT_SETTINGS, settings)
+
+    automation = normalized["automation"]
+    automation_mode = str(automation.get("mode", "manual")).strip().lower()
+    if automation_mode not in VALID_AUTOMATION_MODES:
+        automation_mode = "manual"
+    automation["mode"] = automation_mode
+    automation["require_confirmation"] = bool(
+        automation.get("require_confirmation", True)
+    )
+
+    interaction = normalized["interaction"]
+    interaction_mode = str(interaction.get("mode", "standard")).strip().lower()
+    if interaction_mode not in VALID_INTERACTION_MODES:
+        interaction_mode = "standard"
+    interaction["mode"] = interaction_mode
+    interaction["daily_prompt_limit"] = clamp_int(
+        interaction.get("daily_prompt_limit"),
+        default=3,
+        minimum=0,
+        maximum=50,
+    )
+    interaction["cooldown_minutes"] = clamp_int(
+        interaction.get("cooldown_minutes"),
+        default=60,
+        minimum=0,
+        maximum=1440,
+    )
+
+    coach = normalized["coach"]
+    coach_style = str(coach.get("style", "neutral")).strip().lower()
+    if coach_style in {"off", "silent"}:
+        coach["enabled"] = False
+        coach_style = "neutral"
+    coach_style = LEGACY_COACH_STYLE_MAP.get(coach_style, coach_style)
+    if coach_style not in VALID_COACH_STYLES:
+        coach_style = "neutral"
+    coach["enabled"] = bool(coach.get("enabled", True))
+    coach["style"] = coach_style
+
+    normalized["overlay"]["enabled"] = bool(
+        normalized["overlay"].get("enabled", True)
+    )
+    normalized["overlay"]["show_badge"] = bool(
+        normalized["overlay"].get("show_badge", True)
+    )
+    normalized["overlay"]["show_popup"] = bool(
+        normalized["overlay"].get("show_popup", True)
+    )
+    normalized["notifications"]["enabled"] = bool(
+        normalized["notifications"].get("enabled", True)
+    )
+
+    return normalized
 
 
 def write_json_atomic(path: Path, data: dict[str, Any]) -> None:
@@ -106,7 +193,7 @@ def load_settings() -> dict[str, Any]:
         if not isinstance(loaded, dict):
             raise ValueError("settings.json root must be object")
 
-        settings = deep_merge(DEFAULT_SETTINGS, loaded)
+        settings = normalize_settings(loaded)
 
         # Auto-save if new default keys were added.
         if settings != loaded:
@@ -130,7 +217,7 @@ def load_settings() -> dict[str, Any]:
 
 
 def save_settings(settings: dict[str, Any]) -> None:
-    merged = deep_merge(DEFAULT_SETTINGS, settings)
+    merged = normalize_settings(settings)
     write_json_atomic(SETTINGS_PATH, merged)
 
 

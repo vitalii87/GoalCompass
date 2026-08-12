@@ -787,7 +787,13 @@ class GoalCompassSetupWizard(tk.Tk):
         self.page_index = 0
         self.templates = get_goal_templates()
 
-        self.setup_mode_var = tk.StringVar(value="manual")
+        initial_setup_mode = str(self.settings["automation"].get("mode", "manual"))
+        if initial_setup_mode == "full_ai":
+            initial_setup_mode = "ai_assisted"
+        self.setup_mode_var = tk.StringVar(value=initial_setup_mode)
+        self.interaction_mode_var = tk.StringVar(
+            value=str(self.settings["interaction"].get("mode", "standard"))
+        )
 
         self.start_overlay_var = tk.BooleanVar(
             value=bool(self.settings["app"].get("start_overlay", True))
@@ -805,7 +811,10 @@ class GoalCompassSetupWizard(tk.Tk):
             value=int(self.settings["activity_window"].get("reset_hour", 3))
         )
         self.coach_style_var = tk.StringVar(
-            value=str(self.settings["coach"].get("style", "direct"))
+            value=str(self.settings["coach"].get("style", "neutral"))
+        )
+        self.coach_enabled_var = tk.BooleanVar(
+            value=bool(self.settings["coach"].get("enabled", True))
         )
 
         self.ai_json_text = ""
@@ -1186,14 +1195,39 @@ class GoalCompassSetupWizard(tk.Tk):
 
         ttk.Label(
             parent,
+            text="Interaction mode:",
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w", pady=(8, 4))
+
+        for label, value in [
+            ("Silent / Observer", "silent"),
+            ("Standard / Balanced", "standard"),
+            ("Proactive", "proactive"),
+            ("Intensive / Accountability", "intensive"),
+        ]:
+            ttk.Radiobutton(
+                parent,
+                text=label,
+                variable=self.interaction_mode_var,
+                value=value,
+            ).pack(anchor="w", pady=2)
+
+        ttk.Checkbutton(
+            parent,
+            text="Enable coach",
+            variable=self.coach_enabled_var,
+        ).pack(anchor="w", pady=(12, 4))
+
+        ttk.Label(
+            parent,
             text="Coach style:",
             font=("Segoe UI", 10, "bold"),
         ).pack(anchor="w", pady=(8, 4))
 
         for label, value in [
-            ("Off", "off"),
             ("Soft", "soft"),
-            ("Direct", "direct"),
+            ("Neutral", "neutral"),
+            ("Strict", "strict"),
             ("Aggressive", "aggressive"),
         ]:
             ttk.Radiobutton(
@@ -1443,6 +1477,9 @@ class GoalCompassSetupWizard(tk.Tk):
 
         self.settings["notifications"]["enabled"] = bool(self.notifications_var.get())
 
+        self.settings["automation"]["mode"] = str(self.setup_mode_var.get())
+        self.settings["interaction"]["mode"] = str(self.interaction_mode_var.get())
+        self.settings["coach"]["enabled"] = bool(self.coach_enabled_var.get())
         self.settings["coach"]["style"] = str(self.coach_style_var.get())
 
         save_settings(self.settings)

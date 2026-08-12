@@ -32,6 +32,7 @@ from src.services.activity_window_service import (
     get_seconds_until_next_activity_window,
 )
 from src.services.current_state_service import write_current_state
+from src.services.interaction_policy_service import load_interaction_policy
 from src.services.notification_event_service import write_notification_event
 from src.signals.signals_engine import SignalsEngine
 from src.storage.db import SQLiteStorage
@@ -600,7 +601,11 @@ def main() -> None:
                 category=category,
             )
 
-            if notify_now and notify_key not in sent_notification_keys:
+            if (
+                notify_now
+                and notify_key not in sent_notification_keys
+                and load_interaction_policy().allows_warning
+            ):
                 message = rule.get("message", "Повернись до роботи.")
                 full_message = (
                     f"{message}\n"

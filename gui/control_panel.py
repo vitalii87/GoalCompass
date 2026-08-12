@@ -31,10 +31,22 @@ from src.services.limit_rules_service import (  # noqa: E402
     replace_limit_rule,
     seed_starter_limits_if_empty,
 )
+from src.services.interaction_policy_service import (  # noqa: E402
+    InteractionPolicy,
+    build_interaction_policy,
+)
+from src.services.settings_service import load_settings, save_settings  # noqa: E402
 from src.services.stats_service import (  # noqa: E402
     get_dashboard_snapshot,
     get_today_top_unknown,
 )
+from src.services.update_service import (  # noqa: E402
+    UpdateError,
+    check_for_updates,
+    install_update,
+)
+from src.version import __version__  # noqa: E402
+from gui.ai_assistant_tab import AIAssistantTab  # noqa: E402
 
 
 ACTIVITY_RULE_TYPES = [
@@ -1796,6 +1808,212 @@ class UnknownReviewTab(ttk.Frame):
         return title
 
 
+class ModesTab(ttk.Frame):
+    AUTOMATION_LABELS = {
+        "Manual": "manual",
+        "AI-assisted": "ai_assisted",
+    }
+    INTERACTION_LABELS = {
+        "Silent / Observer": "silent",
+        "Standard / Balanced": "standard",
+        "Proactive": "proactive",
+        "Intensive / Accountability": "intensive",
+    }
+    COACH_LABELS = {
+        "Soft": "soft",
+        "Neutral": "neutral",
+        "Strict": "strict",
+        "Aggressive": "aggressive",
+    }
+
+    def __init__(self, parent: tk.Widget) -> None:
+        super().__init__(parent, padding=14)
+        self.settings = load_settings()
+
+        self.automation_var = tk.StringVar()
+        self.interaction_var = tk.StringVar()
+        self.coach_enabled_var = tk.BooleanVar()
+        self.coach_style_var = tk.StringVar()
+        self.notifications_var = tk.BooleanVar()
+        self.show_popup_var = tk.BooleanVar()
+        self.show_badge_var = tk.BooleanVar()
+        self.daily_prompt_limit_var = tk.IntVar()
+        self.cooldown_minutes_var = tk.IntVar()
+        self.summary_var = tk.StringVar()
+
+        self.build_ui()
+        self.load_values()
+
+    @staticmethod
+    def label_for(mapping: dict[str, str], value: str, fallback: str) -> str:
+        for label, mapped_value in mapping.items():
+            if mapped_value == value:
+                return label
+        return fallback
+
+    def build_ui(self) -> None:
+        ttk.Label(
+            self,
+            text="Operating modes",
+            font=("Segoe UI", 16, "bold"),
+        ).pack(anchor="w", pady=(0, 4))
+        ttk.Label(
+            self,
+            text=(
+                "Automation, interaction intensity and coach tone are independent. "
+                "Silent mode never stops data collection."
+            ),
+            wraplength=900,
+        ).pack(anchor="w", pady=(0, 14))
+
+        form = ttk.Frame(self)
+        form.pack(fill="x")
+
+        ttk.Label(form, text="Automation:").grid(row=0, column=0, sticky="w", pady=5)
+        ttk.Combobox(
+            form,
+            textvariable=self.automation_var,
+            values=list(self.AUTOMATION_LABELS),
+            state="readonly",
+            width=30,
+        ).grid(row=0, column=1, sticky="w", padx=(12, 0), pady=5)
+
+        ttk.Label(form, text="Interaction:").grid(row=1, column=0, sticky="w", pady=5)
+        ttk.Combobox(
+            form,
+            textvariable=self.interaction_var,
+            values=list(self.INTERACTION_LABELS),
+            state="readonly",
+            width=30,
+        ).grid(row=1, column=1, sticky="w", padx=(12, 0), pady=5)
+
+        ttk.Checkbutton(
+            form,
+            text="Enable coach",
+            variable=self.coach_enabled_var,
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(12, 5))
+
+        ttk.Label(form, text="Coach style:").grid(row=3, column=0, sticky="w", pady=5)
+        ttk.Combobox(
+            form,
+            textvariable=self.coach_style_var,
+            values=list(self.COACH_LABELS),
+            state="readonly",
+            width=30,
+        ).grid(row=3, column=1, sticky="w", padx=(12, 0), pady=5)
+
+        ttk.Checkbutton(
+            form,
+            text="Enable warnings and notifications",
+            variable=self.notifications_var,
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(12, 3))
+        ttk.Checkbutton(
+            form,
+            text="Show popup warnings",
+            variable=self.show_popup_var,
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=3)
+        ttk.Checkbutton(
+            form,
+            text="Show overlay badge",
+            variable=self.show_badge_var,
+        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=3)
+
+        ttk.Label(form, text="Daily AI question limit:").grid(
+            row=7, column=0, sticky="w", pady=(12, 5)
+        )
+        ttk.Spinbox(
+            form,
+            from_=0,
+            to=50,
+            textvariable=self.daily_prompt_limit_var,
+            width=8,
+        ).grid(row=7, column=1, sticky="w", padx=(12, 0), pady=(12, 5))
+
+        ttk.Label(form, text="Question cooldown (minutes):").grid(
+            row=8, column=0, sticky="w", pady=5
+        )
+        ttk.Spinbox(
+            form,
+            from_=0,
+            to=1440,
+            textvariable=self.cooldown_minutes_var,
+            width=8,
+        ).grid(row=8, column=1, sticky="w", padx=(12, 0), pady=5)
+
+        ttk.Button(self, text="Save modes", command=self.save).pack(
+            anchor="w", pady=(18, 10)
+        )
+        ttk.Label(self, textvariable=self.summary_var, wraplength=900).pack(anchor="w")
+
+    def load_values(self) -> None:
+        policy = build_interaction_policy(self.settings)
+        self.automation_var.set(
+            self.label_for(self.AUTOMATION_LABELS, policy.automation_mode, "Manual")
+        )
+        self.interaction_var.set(
+            self.label_for(
+                self.INTERACTION_LABELS,
+                policy.interaction_mode,
+                "Standard / Balanced",
+            )
+        )
+        self.coach_enabled_var.set(policy.coach_enabled)
+        self.coach_style_var.set(
+            self.label_for(self.COACH_LABELS, policy.coach_style, "Neutral")
+        )
+        self.notifications_var.set(policy.notifications_enabled)
+        self.show_popup_var.set(policy.show_popup)
+        self.show_badge_var.set(policy.show_badge)
+        self.daily_prompt_limit_var.set(policy.daily_prompt_limit)
+        self.cooldown_minutes_var.set(policy.cooldown_minutes)
+        self.update_summary(policy)
+
+    def update_summary(self, policy: InteractionPolicy) -> None:
+        self.summary_var.set(
+            "Effective policy: "
+            f"automation={policy.automation_mode}, "
+            f"interaction={policy.interaction_mode}, "
+            f"coach={'on' if policy.allows_coaching else 'off'}, "
+            f"warnings={'on' if policy.allows_warning else 'off'}, "
+            f"questions={'on' if policy.allow_questions else 'off'}."
+        )
+
+    def save(self) -> None:
+        self.settings["automation"]["mode"] = self.AUTOMATION_LABELS.get(
+            self.automation_var.get(), "manual"
+        )
+        self.settings["interaction"]["mode"] = self.INTERACTION_LABELS.get(
+            self.interaction_var.get(), "standard"
+        )
+        try:
+            daily_prompt_limit = self.daily_prompt_limit_var.get()
+            cooldown_minutes = self.cooldown_minutes_var.get()
+        except (tk.TclError, ValueError):
+            messagebox.showerror(
+                "Invalid mode settings",
+                "Question limit and cooldown must be whole numbers.",
+                parent=self,
+            )
+            return
+
+        self.settings["interaction"]["daily_prompt_limit"] = daily_prompt_limit
+        self.settings["interaction"]["cooldown_minutes"] = cooldown_minutes
+        self.settings["coach"]["enabled"] = bool(self.coach_enabled_var.get())
+        self.settings["coach"]["style"] = self.COACH_LABELS.get(
+            self.coach_style_var.get(), "neutral"
+        )
+        self.settings["notifications"]["enabled"] = bool(
+            self.notifications_var.get()
+        )
+        self.settings["overlay"]["show_popup"] = bool(self.show_popup_var.get())
+        self.settings["overlay"]["show_badge"] = bool(self.show_badge_var.get())
+
+        save_settings(self.settings)
+        self.settings = load_settings()
+        self.update_summary(build_interaction_policy(self.settings))
+        messagebox.showinfo("Operating modes", "Settings saved.", parent=self)
+
+
 class PlaceholderTab(ttk.Frame):
     def __init__(self, parent: tk.Widget, title: str, message: str) -> None:
         super().__init__(parent, padding=14)
@@ -1811,6 +2029,115 @@ class PlaceholderTab(ttk.Frame):
             text=message,
             wraplength=900,
         ).pack(anchor="w")
+
+
+class UpdatesTab(ttk.Frame):
+    def __init__(self, parent: tk.Widget) -> None:
+        super().__init__(parent, padding=14)
+        self.status_var = tk.StringVar(value="Update status has not been checked.")
+        self.build_ui()
+
+    def build_ui(self) -> None:
+        ttk.Label(
+            self,
+            text="GoalCompass updates",
+            font=("Segoe UI", 16, "bold"),
+        ).pack(anchor="w", pady=(0, 8))
+        ttk.Label(
+            self,
+            text=f"Installed version: {__version__}",
+        ).pack(anchor="w", pady=(0, 6))
+        ttk.Label(
+            self,
+            text=(
+                "Updates are downloaded from the configured GitHub repository. "
+                "Personal data in data/user_config, runtime state, and the database "
+                "are not replaced."
+            ),
+            wraplength=900,
+        ).pack(anchor="w", pady=(0, 12))
+
+        actions = ttk.Frame(self)
+        actions.pack(anchor="w", pady=(0, 12))
+        ttk.Button(
+            actions,
+            text="Check for updates",
+            command=self.check,
+        ).pack(side="left")
+        ttk.Button(
+            actions,
+            text="Install update",
+            command=self.install,
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Label(self, textvariable=self.status_var, wraplength=900).pack(anchor="w")
+        ttk.Label(
+            self,
+            text=(
+                "Close the tracker and overlay before installing. Restart "
+                "GoalCompass after a successful update."
+            ),
+            wraplength=900,
+        ).pack(anchor="w", pady=(12, 0))
+
+    def check(self) -> None:
+        self.configure(cursor="wait")
+        self.update_idletasks()
+        try:
+            status = check_for_updates(fetch=True)
+        except UpdateError as error:
+            self.status_var.set(f"Update check failed: {error}")
+            messagebox.showerror("Update check failed", str(error), parent=self)
+            return
+        finally:
+            self.configure(cursor="")
+
+        if status.update_available:
+            self.status_var.set(
+                f"Version {status.remote_version} is available "
+                f"({status.commits_behind} commit(s) behind)."
+            )
+        else:
+            self.status_var.set(
+                f"GoalCompass is up to date ({status.local_version})."
+            )
+
+    def install(self) -> None:
+        if not messagebox.askyesno(
+            "Install GoalCompass update?",
+            (
+                "Install the newest version from GitHub?\n\n"
+                "Close the tracker and overlay first. Personal data is preserved."
+            ),
+            parent=self,
+        ):
+            return
+
+        self.configure(cursor="wait")
+        self.update_idletasks()
+        try:
+            status = install_update()
+        except UpdateError as error:
+            self.status_var.set(f"Update failed: {error}")
+            messagebox.showerror("Update failed", str(error), parent=self)
+            return
+        finally:
+            self.configure(cursor="")
+
+        if status.update_available:
+            self.status_var.set(
+                "Update is still available. Close GoalCompass and try again."
+            )
+            return
+
+        self.status_var.set(
+            f"Updated to {status.local_version}. Restart GoalCompass now."
+        )
+        messagebox.showinfo(
+            "Update installed",
+            f"GoalCompass {status.local_version} is installed. Restart the app.",
+            parent=self,
+        )
 
 
 class GoalCompassControlCenter(tk.Tk):
@@ -1842,6 +2169,9 @@ class GoalCompassControlCenter(tk.Tk):
         notebook.add(LimitsTab(notebook), text="Limits")
         notebook.add(GoalsTab(notebook), text="Goals")
         notebook.add(UnknownReviewTab(notebook), text="Unknown Review")
+        notebook.add(AIAssistantTab(notebook), text="AI Assistant")
+        notebook.add(ModesTab(notebook), text="Modes")
+        notebook.add(UpdatesTab(notebook), text="Updates")
         notebook.add(
             PlaceholderTab(
                 notebook,
@@ -1862,4 +2192,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    

@@ -2,3 +2,11 @@
 __pycache__/
 .idea
 *.db
+*.db-*
+
+# GoalCompass runtime and personal configuration stay local.
+data/runtime/*.json
+data/user_config/*.json
+data/user_config/*.broken.*
+data/user_config/goal_profile_versions/
+data/user_config/ai_proposals/

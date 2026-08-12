@@ -20,6 +20,9 @@ from src.services.current_state_service import (  # noqa: E402
     is_current_state_stale,
     read_current_state,
 )
+from src.services.interaction_policy_service import (  # noqa: E402
+    load_interaction_policy,
+)
 from src.services.notification_event_service import (  # noqa: E402
     NotificationEvent,
     is_badge_expired,
@@ -218,6 +221,17 @@ class GoalCompassOverlay(tk.Tk):
             )
 
     def refresh_loop(self) -> None:
+        policy = load_interaction_policy()
+
+        if policy.is_silent:
+            self.withdraw()
+            self.notification_badge.config(text="")
+            self.after(3000, self.refresh_loop)
+            return
+
+        if self.state() == "withdrawn":
+            self.deiconify()
+
         self.refresh_data()
         self.refresh_notification_event()
 
@@ -264,6 +278,12 @@ class GoalCompassOverlay(tk.Tk):
             )
 
     def refresh_notification_event(self) -> None:
+        policy = load_interaction_policy()
+
+        if not policy.allows_warning:
+            self.notification_badge.config(text="")
+            return
+
         try:
             event = read_notification_event()
         except Exception:
@@ -274,8 +294,13 @@ class GoalCompassOverlay(tk.Tk):
             self.notification_badge.config(text="")
             return
 
-        self.update_notification_badge(event)
-        self.maybe_show_popup(event)
+        if policy.allows_badge:
+            self.update_notification_badge(event)
+        else:
+            self.notification_badge.config(text="")
+
+        if policy.allows_popup:
+            self.maybe_show_popup(event)
 
     def update_notification_badge(self, event: NotificationEvent) -> None:
         if is_badge_expired(event):
