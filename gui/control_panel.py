@@ -10,11 +10,12 @@ from tkinter import messagebox, ttk
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-CURRENT_STATE_PATH = ROOT_DIR / "data" / "runtime" / "current_state.json"
 
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from src.app_paths import IS_FROZEN  # noqa: E402
+from src.services.current_state_service import CURRENT_STATE_PATH  # noqa: E402
 from src.services.activity_rules_service import (  # noqa: E402
     add_activity_rule,
     delete_activity_rule,
@@ -2050,12 +2051,27 @@ class UpdatesTab(ttk.Frame):
         ttk.Label(
             self,
             text=(
-                "Updates are downloaded from the configured GitHub repository. "
+                (
+                    "Installed builds are updated by running a newer GoalCompass "
+                    "Setup file. "
+                    if IS_FROZEN
+                    else "Updates are downloaded from the configured GitHub repository. "
+                )
+                +
                 "Personal data in data/user_config, runtime state, and the database "
                 "are not replaced."
             ),
             wraplength=900,
         ).pack(anchor="w", pady=(0, 12))
+
+        if IS_FROZEN:
+            self.status_var.set(
+                "To update, close GoalCompass and run the newer Setup executable."
+            )
+            ttk.Label(self, textvariable=self.status_var, wraplength=900).pack(
+                anchor="w"
+            )
+            return
 
         actions = ttk.Frame(self)
         actions.pack(anchor="w", pady=(0, 12))

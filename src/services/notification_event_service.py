@@ -11,9 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from src.app_paths import RUNTIME_DIR
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-RUNTIME_DIR = ROOT_DIR / "data" / "runtime"
 NOTIFICATION_EVENT_PATH = RUNTIME_DIR / "notification_event.json"
 
 

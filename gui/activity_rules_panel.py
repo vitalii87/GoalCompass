@@ -10,11 +10,11 @@ from tkinter import messagebox, ttk
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-CURRENT_STATE_PATH = ROOT_DIR / "data" / "runtime" / "current_state.json"
 
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from src.services.current_state_service import CURRENT_STATE_PATH  # noqa: E402
 from src.services.activity_rules_service import (  # noqa: E402
     add_activity_rule,
     delete_activity_rule,

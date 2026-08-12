@@ -12,9 +12,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from src.app_paths import USER_CONFIG_DIR
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-USER_CONFIG_DIR = ROOT_DIR / "data" / "user_config"
 ACTIVITY_RULES_PATH = USER_CONFIG_DIR / "activity_rules.json"
 
 

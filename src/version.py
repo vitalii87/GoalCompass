@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.app_paths import VERSION_PATH
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-VERSION_PATH = ROOT_DIR / "VERSION"
 
 
 def read_version(path: Path = VERSION_PATH) -> str:

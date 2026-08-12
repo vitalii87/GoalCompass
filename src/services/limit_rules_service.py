@@ -9,9 +9,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from src.app_paths import USER_CONFIG_DIR
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-USER_CONFIG_DIR = ROOT_DIR / "data" / "user_config"
 LIMIT_RULES_PATH = USER_CONFIG_DIR / "limit_rules.json"
 
 

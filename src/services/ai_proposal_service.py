@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from src.app_paths import USER_CONFIG_DIR
 from src.services.goal_profile_service import (
     load_goal_profile,
     normalize_goal_profile,
@@ -19,8 +20,7 @@ from src.services.goal_profile_service import (
 from src.services.settings_service import load_settings, normalize_settings, save_settings
 
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-AI_PROPOSAL_HISTORY_DIR = ROOT_DIR / "data" / "user_config" / "ai_proposals"
+AI_PROPOSAL_HISTORY_DIR = USER_CONFIG_DIR / "ai_proposals"
 
 VALID_CONFIDENCE_LEVELS = {"low", "medium", "high"}
 ALLOWED_SETTINGS_PATCH = {

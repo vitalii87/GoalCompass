@@ -5,10 +5,11 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from src.app_paths import APP_DIR, IS_FROZEN
 from src.version import VERSION_PATH, read_version
 
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+ROOT_DIR = APP_DIR
 SEMVER_PATTERN = re.compile(
     r"^(?P<major>0|[1-9]\d*)\."
     r"(?P<minor>0|[1-9]\d*)\."
@@ -98,6 +99,10 @@ def tracked_local_changes() -> list[str]:
 
 
 def check_for_updates(fetch: bool = True) -> UpdateStatus:
+    if IS_FROZEN:
+        raise UpdateError(
+            "Installed builds are updated by running a newer GoalCompass Setup file."
+        )
     if not (ROOT_DIR / ".git").exists():
         raise UpdateError("This GoalCompass installation is not a Git checkout.")
 

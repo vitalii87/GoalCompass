@@ -6,14 +6,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+from src.app_paths import USER_CONFIG_DIR
 from src.profiles.default_profile import (
     GOALS,
     PROFILE,
     TITLE_RULES,
 )
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-USER_CONFIG_DIR = ROOT_DIR / "data" / "user_config"
 PRIMARY_PROFILE_PATH = USER_CONFIG_DIR / "primary.json"
 
 

@@ -8,14 +8,14 @@ import tkinter as tk
 from datetime import datetime
 from pathlib import Path
 
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+if str(SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOURCE_ROOT))
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
+from src.app_paths import APP_DIR, IS_FROZEN  # noqa: E402
+
+ROOT_DIR = APP_DIR
 CONTROL_PANEL_PATH = ROOT_DIR / "gui" / "control_panel.py"
-
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-
-
 from src.services.current_state_service import (  # noqa: E402
     is_current_state_stale,
     read_current_state,
@@ -204,8 +204,13 @@ class GoalCompassOverlay(tk.Tk):
                 )
                 return
 
+            command = (
+                [sys.executable, "--component", "control-panel"]
+                if IS_FROZEN
+                else [sys.executable, str(CONTROL_PANEL_PATH)]
+            )
             self.control_panel_process = subprocess.Popen(
-                [sys.executable, str(CONTROL_PANEL_PATH)],
+                command,
                 cwd=str(ROOT_DIR),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,

@@ -10,11 +10,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from src.app_paths import RUNTIME_DIR
 from src.services.panel_status_service import category_to_panel_status
 
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-RUNTIME_DIR = ROOT_DIR / "data" / "runtime"
 CURRENT_STATE_PATH = RUNTIME_DIR / "current_state.json"
 
 

@@ -1,11 +1,9 @@
-from pathlib import Path
+from src.app_paths import DATA_DIR
 
 # --------------------------------------------------
 # Paths
 # --------------------------------------------------
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-DATA_DIR = BASE_DIR / "data"
 DB_PATH = str(DATA_DIR / "lazy_coach.db")
 
 # --------------------------------------------------

@@ -8,6 +8,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from src.app_paths import DATA_DIR
 from src.profiles.profile_loader import get_goals
 from src.services.manual_activity_service import (
     ManualActivityEntry,
@@ -16,8 +17,7 @@ from src.services.manual_activity_service import (
 )
 
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DB_PATH = ROOT_DIR / "data" / "lazy_coach.db"
+DB_PATH = DATA_DIR / "lazy_coach.db"
 
 
 @dataclass(frozen=True)

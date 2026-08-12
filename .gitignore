@@ -10,3 +10,8 @@ data/user_config/*.json
 data/user_config/*.broken.*
 data/user_config/goal_profile_versions/
 data/user_config/ai_proposals/
+
+# Windows packaging output.
+build/
+dist/
+artifacts/

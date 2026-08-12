@@ -11,9 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from src.app_paths import USER_CONFIG_DIR
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-USER_CONFIG_DIR = ROOT_DIR / "data" / "user_config"
 GOAL_PROFILE_PATH = USER_CONFIG_DIR / "goal_profile.json"
 GOAL_PROFILE_VERSIONS_DIR = USER_CONFIG_DIR / "goal_profile_versions"
 

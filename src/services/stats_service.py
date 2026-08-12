@@ -7,11 +7,11 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from src.app_paths import DATA_DIR
 from src.services.limit_rules_service import list_active_limits
 
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DB_PATH = ROOT_DIR / "data" / "lazy_coach.db"
+DB_PATH = DATA_DIR / "lazy_coach.db"
 
 
 def today_str() -> str:

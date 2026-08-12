@@ -8,8 +8,9 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from src.app_paths import APP_DIR, IS_FROZEN
 
-ROOT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = APP_DIR
 
 TRACKER_SCRIPT = ROOT_DIR / "src" / "main.py"
 OVERLAY_SCRIPT = ROOT_DIR / "gui" / "overlay_widget.py"
@@ -31,14 +32,24 @@ def log(message: str) -> None:
     print(f"[GoalCompass Runner] {message}", flush=True)
 
 
-def start_process(script_path: Path, name: str) -> subprocess.Popen:
-    if not script_path.exists():
+def component_command(component: str, script_path: Path) -> list[str]:
+    if IS_FROZEN:
+        return [sys.executable, "--component", component]
+    return [sys.executable, str(script_path)]
+
+
+def start_process(
+    script_path: Path,
+    name: str,
+    component: str,
+) -> subprocess.Popen:
+    if not IS_FROZEN and not script_path.exists():
         raise FileNotFoundError(f"{name} script not found: {script_path}")
 
     log(f"Starting {name}: {script_path}")
 
     return subprocess.Popen(
-        [sys.executable, str(script_path)],
+        component_command(component, script_path),
         cwd=str(ROOT_DIR),
     )
 
@@ -51,14 +62,14 @@ def run_setup_wizard_if_needed() -> bool:
     if is_first_run_completed():
         return True
 
-    if not SETUP_WIZARD_SCRIPT.exists():
+    if not IS_FROZEN and not SETUP_WIZARD_SCRIPT.exists():
         log(f"Setup wizard not found: {SETUP_WIZARD_SCRIPT}")
         return False
 
     log("First run detected. Starting setup wizard...")
 
     result = subprocess.run(
-        [sys.executable, str(SETUP_WIZARD_SCRIPT)],
+        component_command("setup", SETUP_WIZARD_SCRIPT),
         cwd=str(ROOT_DIR),
         check=False,
     )
@@ -109,7 +120,7 @@ def main() -> None:
         settings = load_settings()
 
         if should_start_tracker():
-            tracker_process = start_process(TRACKER_SCRIPT, "tracker")
+            tracker_process = start_process(TRACKER_SCRIPT, "tracker", "tracker")
         else:
             log("Tracker startup disabled in settings.")
 
@@ -118,7 +129,7 @@ def main() -> None:
             time.sleep(1)
 
         if should_start_overlay():
-            overlay_process = start_process(OVERLAY_SCRIPT, "overlay")
+            overlay_process = start_process(OVERLAY_SCRIPT, "overlay", "overlay")
         else:
             log("Overlay startup disabled in settings.")
 
@@ -132,7 +143,11 @@ def main() -> None:
         log(f"  {sys.executable} {CONTROL_PANEL_SCRIPT}")
 
         if bool(settings["app"].get("start_control_panel_after_setup", False)):
-            start_process(CONTROL_PANEL_SCRIPT, "control panel")
+            start_process(
+                CONTROL_PANEL_SCRIPT,
+                "control panel",
+                "control-panel",
+            )
 
         while True:
             time.sleep(2)

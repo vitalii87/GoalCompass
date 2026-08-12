@@ -9,10 +9,10 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from src.app_paths import DATA_DIR, USER_CONFIG_DIR
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DB_PATH = ROOT_DIR / "data" / "lazy_coach.db"
-PRESETS_PATH = ROOT_DIR / "data" / "user_config" / "manual_presets.json"
+DB_PATH = DATA_DIR / "lazy_coach.db"
+PRESETS_PATH = USER_CONFIG_DIR / "manual_presets.json"
 
 
 @dataclass(frozen=True)
