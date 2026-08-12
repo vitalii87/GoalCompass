@@ -3,6 +3,14 @@
 All notable GoalCompass changes are recorded here. Versions follow Semantic
 Versioning: `MAJOR.MINOR.PATCH`.
 
+## 0.3.1 - 2026-08-12
+
+- Replaced the empty AI-assisted setup screen with a guided wishes intake.
+- Added ready-made starting options for work, languages, health, and projects.
+- Added life-area, realistic-effort, and obstacle context for AI planning.
+- Prevented copying an empty AI request and added one-click answer pasting.
+- Required AI proposals to include concrete success criteria and practical subgoals.
+
 ## 0.3.0 - 2026-08-12
 
 - Added a self-contained Windows application bundle and setup executable.

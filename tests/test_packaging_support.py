@@ -22,7 +22,7 @@ class PackagedRunnerTests(unittest.TestCase):
         self.assertEqual(command, [sys.executable, "--component", "tracker"])
 
     def test_packaged_version_file_can_be_read(self) -> None:
-        self.assertEqual(read_version(Path("VERSION")), "0.3.0")
+        self.assertEqual(read_version(Path("VERSION")), "0.3.1")
 
 
 if __name__ == "__main__":

@@ -819,6 +819,23 @@ class GoalCompassSetupWizard(tk.Tk):
 
         self.ai_json_text = ""
         self.ai_json_textbox: tk.Text | None = None
+        self.ai_wishes_text = ""
+        self.ai_wishes_textbox: tk.Text | None = None
+        self.ai_effort_var = tk.StringVar(value="3-5 hours per week")
+        self.ai_obstacles_var = tk.StringVar()
+        self.ai_area_vars = {
+            key: tk.BooleanVar(value=False)
+            for key in [
+                "Career and income",
+                "Learning and skills",
+                "Health and fitness",
+                "Habits and discipline",
+                "Personal project",
+                "Relationships and family",
+                "Rest and energy",
+                "Life organization",
+            ]
+        }
 
         self.goal_cards: list[GoalCard] = []
         self.goals_container: ttk.Frame | None = None
@@ -1094,22 +1111,124 @@ class GoalCompassSetupWizard(tk.Tk):
     def page_ai_assisted_goal_setup(self, parent: tk.Widget) -> None:
         self.add_title(
             parent,
-            "AI-assisted goal profile",
-            "Copy the prompt, paste it into any AI, then paste the returned JSON here.",
+            "Tell us what you want to improve",
+            (
+                "A rough description is enough. AI will turn it into proposed goals, "
+                "subgoals, first actions and success criteria for your review."
+            ),
         )
 
-        button_row = ttk.Frame(parent)
-        button_row.pack(fill="x", pady=(0, 8))
+        ttk.Label(
+            parent,
+            text="Choose a starting example or write in your own words:",
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w", pady=(0, 5))
+
+        examples = ttk.Frame(parent)
+        examples.pack(fill="x", pady=(0, 8))
+        for label, text, area in [
+            (
+                "Find or improve work",
+                "I want to find a better job and understand what skills and actions I need.",
+                "Career and income",
+            ),
+            (
+                "Learn a language",
+                "I want to improve a foreign language for everyday life and work.",
+                "Learning and skills",
+            ),
+            (
+                "Improve health",
+                "I want more energy, better fitness and a routine I can maintain.",
+                "Health and fitness",
+            ),
+            (
+                "Build a project",
+                "I want to finish and release a useful personal project without overcomplicating it.",
+                "Personal project",
+            ),
+        ]:
+            ttk.Button(
+                examples,
+                text=label,
+                command=lambda value=text, selected_area=area: self.apply_ai_example(
+                    value, selected_area
+                ),
+            ).pack(side="left", padx=(0, 6))
+
+        self.ai_wishes_textbox = tk.Text(parent, height=4, wrap="word")
+        self.ai_wishes_textbox.pack(fill="x", pady=(0, 8))
+        if self.ai_wishes_text:
+            self.ai_wishes_textbox.insert("1.0", self.ai_wishes_text)
+
+        ttk.Label(
+            parent,
+            text="What areas does this concern? Select any that fit:",
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w", pady=(0, 4))
+
+        areas_frame = ttk.Frame(parent)
+        areas_frame.pack(fill="x", pady=(0, 7))
+        for index, (label, variable) in enumerate(self.ai_area_vars.items()):
+            ttk.Checkbutton(
+                areas_frame,
+                text=label,
+                variable=variable,
+            ).grid(
+                row=index // 4,
+                column=index % 4,
+                sticky="w",
+                padx=(0, 16),
+                pady=2,
+            )
+
+        details = ttk.Frame(parent)
+        details.pack(fill="x", pady=(0, 9))
+        ttk.Label(details, text="Realistic effort:").grid(row=0, column=0, sticky="w")
+        ttk.Combobox(
+            details,
+            textvariable=self.ai_effort_var,
+            values=[
+                "Less than 2 hours per week",
+                "3-5 hours per week",
+                "6-10 hours per week",
+                "More than 10 hours per week",
+                "I do not know yet",
+            ],
+            state="readonly",
+            width=28,
+        ).grid(row=0, column=1, sticky="w", padx=(8, 20))
+        ttk.Label(details, text="Main obstacle (optional):").grid(
+            row=0, column=2, sticky="w"
+        )
+        ttk.Entry(
+            details,
+            textvariable=self.ai_obstacles_var,
+            width=32,
+        ).grid(row=0, column=3, sticky="ew", padx=(8, 0))
+        details.columnconfigure(3, weight=1)
+
+        workflow = ttk.LabelFrame(parent, text="Create your plan in 3 simple steps")
+        workflow.pack(fill="both", expand=True)
+
+        button_row = ttk.Frame(workflow)
+        button_row.pack(fill="x", padx=8, pady=(8, 5))
 
         ttk.Button(
             button_row,
-            text="Copy AI Prompt",
+            text="1. Copy filled AI request",
             command=self.copy_ai_prompt,
         ).pack(side="left")
 
         ttk.Button(
             button_row,
-            text="Validate JSON",
+            text="2. Paste AI answer",
+            command=self.paste_ai_answer,
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Button(
+            button_row,
+            text="3. Check proposed plan",
             command=self.validate_ai_json_button,
         ).pack(side="left", padx=(8, 0))
 
@@ -1121,21 +1240,21 @@ class GoalCompassSetupWizard(tk.Tk):
         ).pack(side="left", padx=(8, 0))
 
         ttk.Label(
-            parent,
+            workflow,
             text=(
-                "The AI must return ONLY valid JSON. No markdown, no explanations, "
-                "no ``` blocks."
+                "The field below is only for the AI answer. It stays empty until you "
+                "paste the returned plan; copying the request does not fill it."
             ),
             wraplength=820,
-        ).pack(anchor="w", pady=(0, 8))
+        ).pack(anchor="w", padx=8, pady=(0, 5))
 
         self.ai_json_textbox = tk.Text(
-            parent,
-            height=24,
+            workflow,
+            height=9,
             width=100,
             wrap="word",
         )
-        self.ai_json_textbox.pack(fill="both", expand=True)
+        self.ai_json_textbox.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
         if self.ai_json_text:
             self.ai_json_textbox.insert("1.0", self.ai_json_text)
@@ -1363,9 +1482,12 @@ class GoalCompassSetupWizard(tk.Tk):
                 "• Limit passive scrolling"
             ),
             "ai_assisted": (
-                "AI-assisted setup does not use GoalCompass API.\n\n"
-                "You copy a prompt, paste it into any AI, then paste the returned JSON here.\n\n"
-                "GoalCompass validates the JSON before saving."
+                "Write only the direction you want to improve; you do not need to "
+                "design goals or subgoals yourself.\n\n"
+                "GoalCompass puts your answer and selected areas into an AI request. "
+                "The AI proposes a practical structure, which you paste back here.\n\n"
+                "GoalCompass validates the proposal before saving. It remains a "
+                "draft that can be adjusted as more real data becomes available."
             ),
         }
 
@@ -1374,17 +1496,75 @@ class GoalCompassSetupWizard(tk.Tk):
             messages.get(topic, "No help available for this field yet."),
         )
 
+    def apply_ai_example(self, text: str, area: str) -> None:
+        self.ai_wishes_text = text
+        if self.ai_wishes_textbox is not None:
+            self.ai_wishes_textbox.delete("1.0", "end")
+            self.ai_wishes_textbox.insert("1.0", text)
+        if area in self.ai_area_vars:
+            self.ai_area_vars[area].set(True)
+
+    def capture_ai_intake(self) -> None:
+        if self.ai_wishes_textbox is not None:
+            self.ai_wishes_text = self.ai_wishes_textbox.get(
+                "1.0", "end"
+            ).strip()
+
+    def selected_ai_areas(self) -> list[str]:
+        return [
+            label for label, variable in self.ai_area_vars.items() if variable.get()
+        ]
+
     def copy_ai_prompt(self) -> None:
-        prompt = build_ai_assisted_prompt(language="uk")
+        self.capture_ai_intake()
+        selected_areas = self.selected_ai_areas()
+        if not self.ai_wishes_text and not selected_areas:
+            messagebox.showwarning(
+                "Tell us what you want",
+                (
+                    "Write one or two sentences about what you want to improve, "
+                    "or select at least one life area first."
+                ),
+            )
+            return
+
+        prompt = build_ai_assisted_prompt(
+            language="uk",
+            wishes=self.ai_wishes_text,
+            life_areas=selected_areas,
+            available_effort=self.ai_effort_var.get(),
+            obstacles=self.ai_obstacles_var.get(),
+        )
 
         self.clipboard_clear()
         self.clipboard_append(prompt)
         self.update()
 
         messagebox.showinfo(
-            "AI prompt copied",
-            "Prompt copied to clipboard. Paste it into any AI, then paste the returned JSON here.",
+            "Filled AI request copied",
+            (
+                "Your wishes and selected areas are included. Paste the request into "
+                "an AI, copy its complete JSON answer, then use 'Paste AI answer'."
+            ),
         )
+
+    def paste_ai_answer(self) -> None:
+        try:
+            clipboard_text = self.clipboard_get().strip()
+        except tk.TclError:
+            clipboard_text = ""
+
+        if not clipboard_text:
+            messagebox.showwarning(
+                "Clipboard is empty",
+                "Copy the complete JSON answer from the AI first.",
+            )
+            return
+
+        self.ai_json_text = clipboard_text
+        if self.ai_json_textbox is not None:
+            self.ai_json_textbox.delete("1.0", "end")
+            self.ai_json_textbox.insert("1.0", clipboard_text)
 
     def capture_ai_json_text(self) -> None:
         if self.ai_json_textbox is not None:
@@ -1392,6 +1572,16 @@ class GoalCompassSetupWizard(tk.Tk):
 
     def validate_ai_json_button(self) -> None:
         self.capture_ai_json_text()
+
+        if not self.ai_json_text:
+            messagebox.showwarning(
+                "No AI answer yet",
+                (
+                    "First copy the filled request, send it to an AI, then paste its "
+                    "complete JSON answer here."
+                ),
+            )
+            return
 
         try:
             profile = parse_goal_profile_json(self.ai_json_text)
@@ -1436,7 +1626,18 @@ class GoalCompassSetupWizard(tk.Tk):
             return True
 
         if mode == "ai_assisted":
+            self.capture_ai_intake()
             self.capture_ai_json_text()
+
+            if not self.ai_json_text:
+                messagebox.showwarning(
+                    "AI plan is missing",
+                    (
+                        "Create the AI request and paste the proposed plan before "
+                        "continuing."
+                    ),
+                )
+                return False
 
             try:
                 profile = parse_goal_profile_json(self.ai_json_text)
@@ -1485,6 +1686,9 @@ class GoalCompassSetupWizard(tk.Tk):
         save_settings(self.settings)
 
     def go_back(self) -> None:
+        if self.pages[self.page_index] == self.page_goal_setup:
+            self.capture_ai_intake()
+            self.capture_ai_json_text()
         if self.page_index > 0:
             self.show_page(self.page_index - 1)
 

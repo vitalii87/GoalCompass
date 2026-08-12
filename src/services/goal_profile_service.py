@@ -968,9 +968,24 @@ def get_goal_templates() -> dict[str, dict[str, Any]]:
     }
 
 
-def build_ai_assisted_prompt(language: str = "uk") -> str:
+def build_ai_assisted_prompt(
+    language: str = "uk",
+    wishes: str = "",
+    life_areas: list[str] | None = None,
+    available_effort: str = "",
+    obstacles: str = "",
+) -> str:
     templates = get_goal_templates()
     template_labels = [template["label"] for template in templates.values()]
+    user_context = {
+        "wishes": wishes.strip(),
+        "selected_life_areas": [
+            str(area).strip() for area in (life_areas or []) if str(area).strip()
+        ],
+        "available_effort": available_effort.strip(),
+        "known_obstacles_or_constraints": obstacles.strip(),
+    }
+    user_context_json = json.dumps(user_context, ensure_ascii=False, indent=2)
 
     return f"""
 You are helping create a GoalCompass goal profile.
@@ -985,8 +1000,13 @@ Do not wrap the JSON in ```.
 
 Use schema_version 2.
 
+The user has already provided a short, possibly vague description below.
+Turn it into a useful first draft; do not ask an interview question in your response.
 The user can have multiple main goals at the same time.
 Each main goal has its own subgoals and limits.
+
+USER INPUT:
+{user_context_json}
 
 Use this exact structure:
 
@@ -1074,12 +1094,20 @@ Important concepts:
   Gaming can be harmful for one user but useful for a streamer.
 - Do not merge unrelated goals into one title.
 - If the user says "find a job, learn German, improve fitness", create three main_goals.
+- Create no more than 3 main goals. Prefer fewer goals and a realistic starting scope.
+- Every main goal must have a non-empty title, a concrete success_definition,
+  and 3-5 practical subgoals in a sensible order.
+- Subgoals must describe actions or capabilities that could plausibly cause progress,
+  not vague motivational slogans.
+- Add only relevant limits. Do not assume an activity is harmful without user context.
 - Add hypotheses for subgoals and limits when possible.
+- If time, deadline, or personal facts are unknown, use a conservative default and
+  disclose the uncertainty in notes. Never invent a diagnosis, income, or biography.
+- The result is a proposal for the user to review, not a claim of guaranteed causation.
 - Keep the profile practical, not motivational fluff.
 
 Possible template categories:
 {", ".join(template_labels)}
 
-Now interview the user briefly if needed.
-Then return the final JSON only.
+Return the completed final JSON only. Never return the empty example unchanged.
 """.strip()
