@@ -3,6 +3,11 @@
 All notable GoalCompass changes are recorded here. Versions follow Semantic
 Versioning: `MAJOR.MINOR.PATCH`.
 
+## 0.4.1 - 2026-08-14
+
+- Made creation of the GoalCompass desktop shortcut part of every Windows
+  installation and update.
+
 ## 0.4.0 - 2026-08-14
 
 - Completed the API-free AI-assisted intake workflow using copy/paste or an

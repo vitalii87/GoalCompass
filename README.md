@@ -1,13 +1,15 @@
 # GoalCompass
 
 GoalCompass is a local-first personal effectiveness assistant. The current
-`0.4.0` release contains the manual workflow and a copy/paste AI-assisted
+`0.4.1` release contains the manual workflow and a copy/paste AI-assisted
 configuration workflow that does not require an API key.
 
 ## Install on Windows
 
-Download and run `GoalCompass-Setup-0.4.0.exe`. It installs GoalCompass for the
+Download and run `GoalCompass-Setup-0.4.1.exe`. It installs GoalCompass for the
 current Windows user and does not require a separate Python installation.
+The installer creates a GoalCompass shortcut on the desktop and Start Menu
+shortcuts for the application, Control Center, and update checker.
 
 Installing a newer setup file over the existing installation updates program
 files while preserving the local activity database and personal settings.

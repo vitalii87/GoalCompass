@@ -40,9 +40,6 @@ SetupLogging=yes
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "ukrainian"; MessagesFile: "compiler:Languages\Ukrainian.isl"
 
-[Tasks]
-Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
-
 [Files]
 Source: "..\dist\GoalCompass\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -56,7 +53,7 @@ Name: "{group}\GoalCompass"; Filename: "{app}\{#AppExeName}"
 Name: "{group}\GoalCompass Control Center"; Filename: "{app}\{#AppExeName}"; Parameters: "--component control-panel"
 Name: "{group}\Check for GoalCompass Updates"; Filename: "{app}\{#AppExeName}"; Parameters: "--component updates"
 Name: "{group}\Uninstall GoalCompass"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\GoalCompass"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\GoalCompass"; Filename: "{app}\{#AppExeName}"
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Launch GoalCompass"; Flags: nowait postinstall skipifsilent
