@@ -3,6 +3,19 @@
 All notable GoalCompass changes are recorded here. Versions follow Semantic
 Versioning: `MAJOR.MINOR.PATCH`.
 
+## 0.4.0 - 2026-08-14
+
+- Completed the API-free AI-assisted intake workflow using copy/paste or an
+  imported JSON, text, or Markdown answer file.
+- Added a versioned AI intake response with user context, goals, subgoals, first
+  actions, assumptions, missing information, and data-confidence metadata.
+- Added tolerant structured-response parsing and a readable review before data
+  is saved or an AI proposal is applied.
+- Added installed-app update checks through GitHub Releases, versioned installer
+  download, mandatory SHA-256 verification, and installer launch.
+- Added Control Center and update shortcuts to the Windows Start Menu, plus
+  **Help → Check for updates...** inside Control Center.
+
 ## 0.3.1 - 2026-08-12
 
 - Replaced the empty AI-assisted setup screen with a guided wishes intake.

@@ -50,6 +50,13 @@ class AIProposalValidationTests(unittest.TestCase):
             "ai_assisted",
         )
 
+    def test_markdown_fenced_proposal_is_accepted(self) -> None:
+        raw = "```json\n" + json.dumps(valid_proposal()) + "\n```"
+
+        parsed = parse_ai_proposal_json(raw)
+
+        self.assertEqual(parsed["confidence"], "medium")
+
     def test_forbidden_settings_are_rejected(self) -> None:
         proposal = valid_proposal()
         proposal["changes"]["settings_patch"] = {

@@ -1,12 +1,12 @@
 # GoalCompass
 
 GoalCompass is a local-first personal effectiveness assistant. The current
-`0.3.1` release contains the manual workflow and the foundation of AI-assisted
-configuration.
+`0.4.0` release contains the manual workflow and a copy/paste AI-assisted
+configuration workflow that does not require an API key.
 
 ## Install on Windows
 
-Download and run `GoalCompass-Setup-0.3.1.exe`. It installs GoalCompass for the
+Download and run `GoalCompass-Setup-0.4.0.exe`. It installs GoalCompass for the
 current Windows user and does not require a separate Python installation.
 
 Installing a newer setup file over the existing installation updates program
@@ -21,7 +21,16 @@ python run_goalcompass.py
 The first launch opens the setup wizard. The Control Center contains activity
 rules, goals, AI-assisted proposals, operating modes, and application updates.
 
-## Update a local installation
+## Update an installed application
+
+Open **GoalCompass Control Center** from the Start Menu or click the gear in the
+overlay. Then use **Help → Check for updates...** or the **Updates** tab.
+
+Installed builds check the latest GitHub Release, download the matching Setup
+file, verify its SHA-256 digest, and start the installer after confirmation.
+Profiles, settings, activity history, and proposal history remain local.
+
+## Update a source checkout
 
 Close the GoalCompass tracker and overlay before installing an update. Then use
 the **Updates** tab in Control Center, or run:

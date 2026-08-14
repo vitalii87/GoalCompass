@@ -53,6 +53,8 @@ Name: "{app}\data\user_config"; Flags: uninsneveruninstall
 
 [Icons]
 Name: "{group}\GoalCompass"; Filename: "{app}\{#AppExeName}"
+Name: "{group}\GoalCompass Control Center"; Filename: "{app}\{#AppExeName}"; Parameters: "--component control-panel"
+Name: "{group}\Check for GoalCompass Updates"; Filename: "{app}\{#AppExeName}"; Parameters: "--component updates"
 Name: "{group}\Uninstall GoalCompass"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\GoalCompass"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 

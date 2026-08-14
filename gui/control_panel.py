@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 import tkinter as tk
+import webbrowser
 from pathlib import Path
 from tkinter import messagebox, ttk
 
@@ -2036,6 +2037,7 @@ class UpdatesTab(ttk.Frame):
     def __init__(self, parent: tk.Widget) -> None:
         super().__init__(parent, padding=14)
         self.status_var = tk.StringVar(value="Update status has not been checked.")
+        self.latest_status = None
         self.build_ui()
 
     def build_ui(self) -> None:
@@ -2052,8 +2054,8 @@ class UpdatesTab(ttk.Frame):
             self,
             text=(
                 (
-                    "Installed builds are updated by running a newer GoalCompass "
-                    "Setup file. "
+                    "Installed builds check GitHub Release metadata, download "
+                    "the versioned Setup file and verify its SHA-256 digest. "
                     if IS_FROZEN
                     else "Updates are downloaded from the configured GitHub repository. "
                 )
@@ -2064,15 +2066,6 @@ class UpdatesTab(ttk.Frame):
             wraplength=900,
         ).pack(anchor="w", pady=(0, 12))
 
-        if IS_FROZEN:
-            self.status_var.set(
-                "To update, close GoalCompass and run the newer Setup executable."
-            )
-            ttk.Label(self, textvariable=self.status_var, wraplength=900).pack(
-                anchor="w"
-            )
-            return
-
         actions = ttk.Frame(self)
         actions.pack(anchor="w", pady=(0, 12))
         ttk.Button(
@@ -2082,16 +2075,23 @@ class UpdatesTab(ttk.Frame):
         ).pack(side="left")
         ttk.Button(
             actions,
-            text="Install update",
+            text=("Download and install" if IS_FROZEN else "Install update"),
             command=self.install,
         ).pack(side="left", padx=(8, 0))
+        self.release_button = ttk.Button(
+            actions,
+            text="Open release page",
+            command=self.open_release_page,
+            state="disabled",
+        )
+        self.release_button.pack(side="left", padx=(8, 0))
 
         ttk.Label(self, textvariable=self.status_var, wraplength=900).pack(anchor="w")
         ttk.Label(
             self,
             text=(
-                "Close the tracker and overlay before installing. Restart "
-                "GoalCompass after a successful update."
+                "During installation GoalCompass may ask to close its running "
+                "windows. Personal profiles, settings and activity history remain."
             ),
             wraplength=900,
         ).pack(anchor="w", pady=(12, 0))
@@ -2108,10 +2108,19 @@ class UpdatesTab(ttk.Frame):
         finally:
             self.configure(cursor="")
 
+        self.latest_status = status
+        self.release_button.config(
+            state=("normal" if status.release_url else "disabled")
+        )
+
         if status.update_available:
+            detail = (
+                "Windows installer is ready."
+                if status.asset_url
+                else "The release has no matching Windows installer yet."
+            )
             self.status_var.set(
-                f"Version {status.remote_version} is available "
-                f"({status.commits_behind} commit(s) behind)."
+                f"Version {status.remote_version} is available. {detail}"
             )
         else:
             self.status_var.set(
@@ -2122,8 +2131,9 @@ class UpdatesTab(ttk.Frame):
         if not messagebox.askyesno(
             "Install GoalCompass update?",
             (
-                "Install the newest version from GitHub?\n\n"
-                "Close the tracker and overlay first. Personal data is preserved."
+                "Download and start the newest GoalCompass installer from GitHub?\n\n"
+                "The installer can close running GoalCompass windows. Personal data "
+                "is preserved."
             ),
             parent=self,
         ):
@@ -2140,6 +2150,23 @@ class UpdatesTab(ttk.Frame):
         finally:
             self.configure(cursor="")
 
+        self.latest_status = status
+
+        if status.installer_started:
+            self.status_var.set(
+                f"GoalCompass {status.remote_version} installer started."
+            )
+            messagebox.showinfo(
+                "Installer started",
+                (
+                    f"GoalCompass {status.remote_version} was downloaded and verified. "
+                    "Continue in the Setup window; Control Center will now close."
+                ),
+                parent=self,
+            )
+            self.after(250, self.winfo_toplevel().destroy)
+            return
+
         if status.update_available:
             self.status_var.set(
                 "Update is still available. Close GoalCompass and try again."
@@ -2155,6 +2182,17 @@ class UpdatesTab(ttk.Frame):
             parent=self,
         )
 
+    def open_release_page(self) -> None:
+        release_url = getattr(self.latest_status, "release_url", "")
+        if not release_url:
+            messagebox.showwarning(
+                "Release page unavailable",
+                "Check for updates first.",
+                parent=self,
+            )
+            return
+        webbrowser.open(release_url)
+
 
 class GoalCompassControlCenter(tk.Tk):
     def __init__(self) -> None:
@@ -2166,6 +2204,33 @@ class GoalCompassControlCenter(tk.Tk):
         self.resizable(True, True)
 
         self.build_ui()
+        self.build_menu()
+
+    def build_menu(self) -> None:
+        menu_bar = tk.Menu(self)
+        help_menu = tk.Menu(menu_bar, tearoff=False)
+        help_menu.add_command(
+            label="Check for updates...",
+            command=lambda: self.open_updates(check_now=True),
+        )
+        help_menu.add_command(
+            label="GoalCompass version",
+            command=self.show_version,
+        )
+        menu_bar.add_cascade(label="Help", menu=help_menu)
+        self.config(menu=menu_bar)
+
+    def open_updates(self, check_now: bool = False) -> None:
+        self.notebook.select(self.updates_tab)
+        if check_now:
+            self.after(50, self.updates_tab.check)
+
+    def show_version(self) -> None:
+        messagebox.showinfo(
+            "GoalCompass",
+            f"Installed version: {__version__}\n\nUpdates: Help → Check for updates...",
+            parent=self,
+        )
 
     def build_ui(self) -> None:
         root = ttk.Frame(self, padding=10)
@@ -2177,20 +2242,21 @@ class GoalCompassControlCenter(tk.Tk):
             font=("Segoe UI", 18, "bold"),
         ).pack(anchor="w", pady=(0, 10))
 
-        notebook = ttk.Notebook(root)
-        notebook.pack(fill="both", expand=True)
+        self.notebook = ttk.Notebook(root)
+        self.notebook.pack(fill="both", expand=True)
 
-        notebook.add(DashboardTab(notebook), text="Dashboard")
-        notebook.add(ActivityRulesTab(notebook), text="Activity Rules")
-        notebook.add(LimitsTab(notebook), text="Limits")
-        notebook.add(GoalsTab(notebook), text="Goals")
-        notebook.add(UnknownReviewTab(notebook), text="Unknown Review")
-        notebook.add(AIAssistantTab(notebook), text="AI Assistant")
-        notebook.add(ModesTab(notebook), text="Modes")
-        notebook.add(UpdatesTab(notebook), text="Updates")
-        notebook.add(
+        self.notebook.add(DashboardTab(self.notebook), text="Dashboard")
+        self.notebook.add(ActivityRulesTab(self.notebook), text="Activity Rules")
+        self.notebook.add(LimitsTab(self.notebook), text="Limits")
+        self.notebook.add(GoalsTab(self.notebook), text="Goals")
+        self.notebook.add(UnknownReviewTab(self.notebook), text="Unknown Review")
+        self.notebook.add(AIAssistantTab(self.notebook), text="AI Assistant")
+        self.notebook.add(ModesTab(self.notebook), text="Modes")
+        self.updates_tab = UpdatesTab(self.notebook)
+        self.notebook.add(self.updates_tab, text="Updates")
+        self.notebook.add(
             PlaceholderTab(
-                notebook,
+                self.notebook,
                 title="Manual Activity",
                 message=(
                     "Later: add offline activities such as German lesson, workout, "
@@ -2203,6 +2269,12 @@ class GoalCompassControlCenter(tk.Tk):
 
 def main() -> None:
     app = GoalCompassControlCenter()
+    app.mainloop()
+
+
+def updates_main() -> None:
+    app = GoalCompassControlCenter()
+    app.open_updates(check_now=True)
     app.mainloop()
 
 

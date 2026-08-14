@@ -9,7 +9,7 @@ import sys
 import tkinter as tk
 from datetime import date, datetime
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 
@@ -23,6 +23,7 @@ from src.services.goal_profile_service import (  # noqa: E402
     MAX_MAIN_GOALS,
     MAX_SUBGOALS_PER_GOAL,
     build_ai_assisted_prompt,
+    build_ai_assisted_profile_preview,
     create_profile_from_manual_goals,
     get_goal_templates,
     parse_goal_profile_json,
@@ -819,6 +820,8 @@ class GoalCompassSetupWizard(tk.Tk):
 
         self.ai_json_text = ""
         self.ai_json_textbox: tk.Text | None = None
+        self.ai_preview_text = ""
+        self.ai_preview_textbox: tk.Text | None = None
         self.ai_wishes_text = ""
         self.ai_wishes_textbox: tk.Text | None = None
         self.ai_effort_var = tk.StringVar(value="3-5 hours per week")
@@ -1216,7 +1219,7 @@ class GoalCompassSetupWizard(tk.Tk):
 
         ttk.Button(
             button_row,
-            text="1. Copy filled AI request",
+            text="1. Copy AI request",
             command=self.copy_ai_prompt,
         ).pack(side="left")
 
@@ -1228,7 +1231,13 @@ class GoalCompassSetupWizard(tk.Tk):
 
         ttk.Button(
             button_row,
-            text="3. Check proposed plan",
+            text="or Load answer file",
+            command=self.load_ai_answer_file,
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Button(
+            button_row,
+            text="3. Check plan",
             command=self.validate_ai_json_button,
         ).pack(side="left", padx=(8, 0))
 
@@ -1248,16 +1257,29 @@ class GoalCompassSetupWizard(tk.Tk):
             wraplength=820,
         ).pack(anchor="w", padx=8, pady=(0, 5))
 
-        self.ai_json_textbox = tk.Text(
-            workflow,
+        answer_panes = ttk.Panedwindow(workflow, orient="horizontal")
+        answer_panes.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        raw_frame = ttk.LabelFrame(answer_panes, text="AI answer")
+        preview_frame = ttk.LabelFrame(answer_panes, text="Readable plan preview")
+        answer_panes.add(raw_frame, weight=1)
+        answer_panes.add(preview_frame, weight=1)
+
+        self.ai_json_textbox = tk.Text(raw_frame, height=9, wrap="word")
+        self.ai_json_textbox.pack(fill="both", expand=True, padx=5, pady=5)
+
+        self.ai_preview_textbox = tk.Text(
+            preview_frame,
             height=9,
-            width=100,
             wrap="word",
+            state="disabled",
+            bg="#f4f4f4",
         )
-        self.ai_json_textbox.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self.ai_preview_textbox.pack(fill="both", expand=True, padx=5, pady=5)
 
         if self.ai_json_text:
             self.ai_json_textbox.insert("1.0", self.ai_json_text)
+        self.set_ai_preview(self.ai_preview_text)
 
     def page_preferences(self, parent: tk.Widget) -> None:
         self.add_title(
@@ -1379,6 +1401,25 @@ class GoalCompassSetupWizard(tk.Tk):
             f"Main goals: {len(main_goals)}",
             "",
         ]
+
+        if self.setup_mode_var.get() == "ai_assisted":
+            user_profile = self.pending_goal_profile.get("user_profile", {})
+            if isinstance(user_profile, dict) and user_profile.get("summary"):
+                summary_lines.extend(
+                    [f"User profile: {user_profile.get('summary', '')}", ""]
+                )
+
+            data_quality = self.pending_goal_profile.get("data_quality", {})
+            if isinstance(data_quality, dict):
+                summary_lines.append(
+                    f"AI data confidence: {data_quality.get('confidence', 'low')}"
+                )
+                missing_count = len(data_quality.get("missing_information", []))
+                assumption_count = len(data_quality.get("assumptions", []))
+                summary_lines.append(
+                    f"Items to verify later: {missing_count + assumption_count}"
+                )
+                summary_lines.append("")
 
         for index, goal in enumerate(main_goals, start=1):
             title = goal.get("title", "")
@@ -1562,9 +1603,63 @@ class GoalCompassSetupWizard(tk.Tk):
             return
 
         self.ai_json_text = clipboard_text
+        self.ai_preview_text = ""
+        self.pending_goal_profile = None
         if self.ai_json_textbox is not None:
             self.ai_json_textbox.delete("1.0", "end")
             self.ai_json_textbox.insert("1.0", clipboard_text)
+        self.set_ai_preview("")
+
+    def load_ai_answer_file(self) -> None:
+        filename = filedialog.askopenfilename(
+            parent=self,
+            title="Load AI answer",
+            filetypes=[
+                ("AI answer", "*.json *.txt *.md"),
+                ("JSON", "*.json"),
+                ("Text", "*.txt *.md"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not filename:
+            return
+
+        path = Path(filename)
+        try:
+            if path.stat().st_size > 2 * 1024 * 1024:
+                raise ValueError("The answer file is larger than 2 MB.")
+            response_text = path.read_text(encoding="utf-8-sig").strip()
+        except Exception as error:
+            messagebox.showerror("Cannot load AI answer", str(error), parent=self)
+            return
+
+        if not response_text:
+            messagebox.showwarning(
+                "AI answer is empty",
+                "The selected file does not contain an AI answer.",
+                parent=self,
+            )
+            return
+
+        self.ai_json_text = response_text
+        self.ai_preview_text = ""
+        self.pending_goal_profile = None
+        if self.ai_json_textbox is not None:
+            self.ai_json_textbox.delete("1.0", "end")
+            self.ai_json_textbox.insert("1.0", response_text)
+        self.set_ai_preview("")
+
+    def set_ai_preview(self, preview: str) -> None:
+        self.ai_preview_text = preview
+        if self.ai_preview_textbox is None:
+            return
+        self.ai_preview_textbox.config(state="normal")
+        self.ai_preview_textbox.delete("1.0", "end")
+        self.ai_preview_textbox.insert(
+            "1.0",
+            preview or "Check the AI answer to see goals, assumptions and missing data.",
+        )
+        self.ai_preview_textbox.config(state="disabled")
 
     def capture_ai_json_text(self) -> None:
         if self.ai_json_textbox is not None:
@@ -1586,19 +1681,26 @@ class GoalCompassSetupWizard(tk.Tk):
         try:
             profile = parse_goal_profile_json(self.ai_json_text)
         except Exception as error:
-            messagebox.showerror("Invalid JSON", str(error))
+            self.pending_goal_profile = None
+            self.set_ai_preview("")
+            messagebox.showerror("Invalid AI answer", str(error))
             return
 
         pretty = json.dumps(profile, ensure_ascii=False, indent=2)
         self.ai_json_text = pretty
+        self.pending_goal_profile = profile
+        self.set_ai_preview(build_ai_assisted_profile_preview(profile))
 
         if self.ai_json_textbox is not None:
             self.ai_json_textbox.delete("1.0", "end")
             self.ai_json_textbox.insert("1.0", pretty)
 
         messagebox.showinfo(
-            "Valid JSON",
-            "Goal profile JSON is valid.",
+            "AI plan is ready for review",
+            (
+                "The answer is valid. Review the readable plan, assumptions and "
+                "missing information before continuing."
+            ),
         )
 
     def prepare_goal_profile(self) -> bool:
@@ -1651,6 +1753,7 @@ class GoalCompassSetupWizard(tk.Tk):
             profile["coach"]["language"] = "uk"
 
             self.pending_goal_profile = profile
+            self.set_ai_preview(build_ai_assisted_profile_preview(profile))
             return True
 
         messagebox.showerror(

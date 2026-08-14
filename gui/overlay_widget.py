@@ -182,7 +182,7 @@ class GoalCompassOverlay(tk.Tk):
         self.geometry(f"+{x}+{y}")
 
     def open_control_center(self) -> None:
-        if not CONTROL_PANEL_PATH.exists():
+        if not IS_FROZEN and not CONTROL_PANEL_PATH.exists():
             self.show_simple_popup(
                 title="Control Center not found",
                 message=str(CONTROL_PANEL_PATH),

@@ -3,7 +3,14 @@ from __future__ import annotations
 import argparse
 
 
-COMPONENTS = ("runner", "tracker", "overlay", "control-panel", "setup")
+COMPONENTS = (
+    "runner",
+    "tracker",
+    "overlay",
+    "control-panel",
+    "setup",
+    "updates",
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -23,6 +30,8 @@ def main() -> None:
         from gui.control_panel import main as component_main
     elif component == "setup":
         from gui.setup_wizard import main as component_main
+    elif component == "updates":
+        from gui.control_panel import updates_main as component_main
     else:
         from run_goalcompass import main as component_main
 

@@ -14,6 +14,8 @@ if ($Version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
 
 if (-not $IsccPath) {
     $Candidates = @(
+        (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 7\ISCC.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"),
         "C:\Program Files\Inno Setup 7\ISCC.exe",
         "C:\Program Files (x86)\Inno Setup 7\ISCC.exe",
         "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",

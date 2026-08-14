@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from src.app_paths import USER_CONFIG_DIR
+from src.services.structured_response_service import extract_json_object
 
 GOAL_PROFILE_PATH = USER_CONFIG_DIR / "goal_profile.json"
 GOAL_PROFILE_VERSIONS_DIR = USER_CONFIG_DIR / "goal_profile_versions"
@@ -38,6 +39,20 @@ DEFAULT_GOAL_PROFILE: dict[str, Any] = {
     "source_mode": "manual",
     "change_reason": "Initial goal profile",
     "main_goals": [],
+    "user_profile": {
+        "summary": "",
+        "motivations": [],
+        "strengths": [],
+        "constraints": [],
+        "preferences": [],
+        "available_effort": "",
+    },
+    "data_quality": {
+        "confidence": "low",
+        "assumptions": [],
+        "missing_information": [],
+        "unobserved_areas": [],
+    },
     "coach": {
         "style": "direct",
         "language": "uk",
@@ -210,6 +225,7 @@ def create_subgoal(title: str, existing_ids: set[str] | None = None) -> dict[str
         "linked_categories": [],
         "linked_keywords": [],
         "linked_processes": [],
+        "first_actions": [],
         "notes": "",
     }
 
@@ -262,6 +278,48 @@ def normalize_time_horizon(value: Any) -> dict[str, Any]:
     return horizon
 
 
+def normalize_text_list(value: Any, max_items: int = 25) -> list[str]:
+    if not isinstance(value, list):
+        return []
+
+    normalized: list[str] = []
+    for item in value:
+        text = str(item).strip()
+        if text and text not in normalized:
+            normalized.append(text[:1000])
+        if len(normalized) >= max_items:
+            break
+    return normalized
+
+
+def normalize_user_profile(value: Any) -> dict[str, Any]:
+    source = value if isinstance(value, dict) else {}
+    return {
+        "summary": str(source.get("summary", "")).strip()[:3000],
+        "motivations": normalize_text_list(source.get("motivations")),
+        "strengths": normalize_text_list(source.get("strengths")),
+        "constraints": normalize_text_list(source.get("constraints")),
+        "preferences": normalize_text_list(source.get("preferences")),
+        "available_effort": str(source.get("available_effort", "")).strip()[:500],
+    }
+
+
+def normalize_data_quality(value: Any) -> dict[str, Any]:
+    source = value if isinstance(value, dict) else {}
+    confidence = str(source.get("confidence", "low")).strip().lower()
+    if confidence not in {"low", "medium", "high"}:
+        confidence = "low"
+
+    return {
+        "confidence": confidence,
+        "assumptions": normalize_text_list(source.get("assumptions")),
+        "missing_information": normalize_text_list(
+            source.get("missing_information")
+        ),
+        "unobserved_areas": normalize_text_list(source.get("unobserved_areas")),
+    }
+
+
 def normalize_subgoal(subgoal: dict[str, Any], existing_ids: set[str]) -> dict[str, Any]:
     title = str(subgoal.get("title", "")).strip()
     subgoal_id = str(subgoal.get("id", "")).strip()
@@ -280,9 +338,19 @@ def normalize_subgoal(subgoal: dict[str, Any], existing_ids: set[str]) -> dict[s
     if normalized["status"] not in VALID_GOAL_STATUSES:
         normalized["status"] = "active"
 
-    for list_key in ["linked_categories", "linked_keywords", "linked_processes"]:
+    for list_key in [
+        "linked_categories",
+        "linked_keywords",
+        "linked_processes",
+        "first_actions",
+    ]:
         if not isinstance(normalized.get(list_key), list):
             normalized[list_key] = []
+
+    normalized["first_actions"] = normalize_text_list(
+        normalized.get("first_actions"),
+        max_items=10,
+    )
 
     return normalized
 
@@ -439,6 +507,13 @@ def normalize_goal_profile(profile: dict[str, Any]) -> dict[str, Any]:
     if isinstance(profile.get("review"), dict):
         review.update(profile["review"])
     normalized["review"] = review
+
+    normalized["user_profile"] = normalize_user_profile(
+        profile.get("user_profile")
+    )
+    normalized["data_quality"] = normalize_data_quality(
+        profile.get("data_quality")
+    )
 
     return normalized
 
@@ -852,20 +927,98 @@ def create_profile_from_manual_input(
 
 def parse_goal_profile_json(json_text: str) -> dict[str, Any]:
     try:
-        parsed = json.loads(json_text)
-    except json.JSONDecodeError as error:
-        raise ValueError(f"Invalid JSON: {error}") from error
+        parsed = extract_json_object(json_text)
+    except ValueError as error:
+        raise ValueError(f"Invalid AI response: {error}") from error
 
-    if not isinstance(parsed, dict):
-        raise ValueError("Goal profile JSON must be an object.")
+    profile_data = parsed
+    if "goal_profile" in parsed:
+        response_schema = str(parsed.get("response_schema", "")).strip()
+        if response_schema and response_schema != "goalcompass_ai_intake/v1":
+            raise ValueError(
+                "Unsupported AI response schema. Expected goalcompass_ai_intake/v1."
+            )
 
-    normalized = normalize_goal_profile(parsed)
+        goal_profile = parsed.get("goal_profile")
+        if not isinstance(goal_profile, dict):
+            raise ValueError("AI response goal_profile must be an object.")
+
+        profile_data = deepcopy(goal_profile)
+        profile_data["user_profile"] = parsed.get(
+            "user_profile",
+            profile_data.get("user_profile", {}),
+        )
+        profile_data["data_quality"] = parsed.get(
+            "data_quality",
+            profile_data.get("data_quality", {}),
+        )
+
+    normalized = normalize_goal_profile(profile_data)
     errors = validate_goal_profile(normalized)
 
     if errors:
         raise ValueError("Invalid goal profile:\n" + "\n".join(errors))
 
     return normalized
+
+
+def build_ai_assisted_profile_preview(profile: dict[str, Any]) -> str:
+    normalized = normalize_goal_profile(profile)
+    user_profile = normalized["user_profile"]
+    data_quality = normalized["data_quality"]
+
+    lines = ["AI-assisted profile preview"]
+    if user_profile["summary"]:
+        lines.extend(["", f"User summary: {user_profile['summary']}"])
+    if user_profile["available_effort"]:
+        lines.append(f"Available effort: {user_profile['available_effort']}")
+
+    for label, key in [
+        ("Motivations", "motivations"),
+        ("Strengths", "strengths"),
+        ("Constraints", "constraints"),
+        ("Preferences", "preferences"),
+    ]:
+        values = user_profile[key]
+        if values:
+            lines.append(f"{label}: " + "; ".join(values))
+
+    lines.extend(["", f"Data confidence: {data_quality['confidence']}"])
+    for label, key in [
+        ("Assumptions to verify", "assumptions"),
+        ("Missing information", "missing_information"),
+        ("Unobserved areas", "unobserved_areas"),
+    ]:
+        values = data_quality[key]
+        if values:
+            lines.append(f"{label}:")
+            lines.extend(f"  - {item}" for item in values)
+
+    main_goals = normalized.get("main_goals", [])
+    lines.extend(["", f"Goals: {len(main_goals)}"])
+    for index, goal in enumerate(main_goals, start=1):
+        lines.extend(
+            [
+                "",
+                f"{index}. {goal.get('title', '')} [{goal.get('priority', 'medium')}]",
+                f"   Why: {goal.get('why', '') or '[not specified]'}",
+                (
+                    "   Success: "
+                    f"{goal.get('success_definition', '') or '[not specified]'}"
+                ),
+                "   Subgoals:",
+            ]
+        )
+        for subgoal in goal.get("subgoals", []):
+            lines.append(f"     - {subgoal.get('title', '')}")
+            for action in subgoal.get("first_actions", []):
+                lines.append(f"       first action: {action}")
+        limits = goal.get("limits", [])
+        if limits:
+            lines.append("   Limits:")
+            lines.extend(f"     - {item.get('title', '')}" for item in limits)
+
+    return "\n".join(lines)
 
 
 def get_goal_templates() -> dict[str, dict[str, Any]]:
@@ -998,7 +1151,8 @@ Do not use markdown.
 Do not add explanations.
 Do not wrap the JSON in ```.
 
-Use schema_version 2.
+Use the response schema goalcompass_ai_intake/v1. The nested goal_profile uses
+schema_version 2.
 
 The user has already provided a short, possibly vague description below.
 Turn it into a useful first draft; do not ask an interview question in your response.
@@ -1011,12 +1165,28 @@ USER INPUT:
 Use this exact structure:
 
 {{
-  "schema_version": 2,
-  "profile_version": 1,
-  "created_by": "ai_assisted",
-  "source_mode": "ai_assisted",
-  "main_goals": [
-    {{
+  "response_schema": "goalcompass_ai_intake/v1",
+  "user_profile": {{
+    "summary": "",
+    "motivations": [],
+    "strengths": [],
+    "constraints": [],
+    "preferences": [],
+    "available_effort": ""
+  }},
+  "data_quality": {{
+    "confidence": "low",
+    "assumptions": [],
+    "missing_information": [],
+    "unobserved_areas": []
+  }},
+  "goal_profile": {{
+    "schema_version": 2,
+    "profile_version": 1,
+    "created_by": "ai_assisted",
+    "source_mode": "ai_assisted",
+    "main_goals": [
+      {{
       "id": "goal_example",
       "title": "",
       "why": "",
@@ -1029,8 +1199,8 @@ Use this exact structure:
         "duration_days": null,
         "review_interval": "monthly"
       }},
-      "subgoals": [
-        {{
+        "subgoals": [
+          {{
           "id": "subgoal_example",
           "title": "",
           "status": "active",
@@ -1041,11 +1211,12 @@ Use this exact structure:
           "linked_categories": [],
           "linked_keywords": [],
           "linked_processes": [],
+          "first_actions": [],
           "notes": ""
-        }}
-      ],
-      "limits": [
-        {{
+          }}
+        ],
+        "limits": [
+          {{
           "id": "limit_example",
           "title": "",
           "status": "active",
@@ -1057,20 +1228,21 @@ Use this exact structure:
           "linked_keywords": [],
           "severity": "warning",
           "notes": ""
-        }}
-      ],
-      "notes": ""
+          }}
+        ],
+        "notes": ""
+      }}
+    ],
+    "coach": {{
+      "style": "direct",
+      "language": "{language}"
+    }},
+    "review": {{
+      "weekly_review_enabled": true,
+      "monthly_review_enabled": true,
+      "monthly_review_day": 1,
+      "last_review_at": null
     }}
-  ],
-  "coach": {{
-    "style": "direct",
-    "language": "{language}"
-  }},
-  "review": {{
-    "weekly_review_enabled": true,
-    "monthly_review_enabled": true,
-    "monthly_review_day": 1,
-    "last_review_at": null
   }}
 }}
 
@@ -1101,8 +1273,16 @@ Important concepts:
   not vague motivational slogans.
 - Add only relevant limits. Do not assume an activity is harmful without user context.
 - Add hypotheses for subgoals and limits when possible.
+- Give every subgoal 1-3 small first_actions that the user can start without
+  configuring another system.
 - If time, deadline, or personal facts are unknown, use a conservative default and
-  disclose the uncertainty in notes. Never invent a diagnosis, income, or biography.
+  disclose it in data_quality. Never invent a diagnosis, income, or biography.
+- Separate observed user statements from assumptions. Put every inference that could
+  materially change the plan in data_quality.assumptions.
+- Put important unanswered questions in data_quality.missing_information. Do not block
+  the draft merely because some information is unavailable.
+- Use low confidence when important information is missing. Partial data can still
+  produce a useful draft, but never present absence of data as proof.
 - The result is a proposal for the user to review, not a claim of guaranteed causation.
 - Keep the profile practical, not motivational fluff.
 

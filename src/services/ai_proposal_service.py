@@ -18,6 +18,7 @@ from src.services.goal_profile_service import (
     validate_goal_profile,
 )
 from src.services.settings_service import load_settings, normalize_settings, save_settings
+from src.services.structured_response_service import extract_json_object
 
 
 AI_PROPOSAL_HISTORY_DIR = USER_CONFIG_DIR / "ai_proposals"
@@ -156,8 +157,8 @@ def normalize_ai_proposal(proposal: Any) -> dict[str, Any]:
 
 def parse_ai_proposal_json(json_text: str) -> dict[str, Any]:
     try:
-        parsed = json.loads(json_text)
-    except json.JSONDecodeError as error:
+        parsed = extract_json_object(json_text)
+    except ValueError as error:
         raise ValueError(f"Invalid proposal JSON: {error}") from error
     return normalize_ai_proposal(parsed)
 
